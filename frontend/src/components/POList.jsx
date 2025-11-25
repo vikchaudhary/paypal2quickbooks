@@ -3,11 +3,20 @@ import { Search, Filter, ChevronDown, FileText } from 'lucide-react';
 
 export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
     const [searchTerm, setSearchTerm] = useState('');
+    const [selectedStatus, setSelectedStatus] = useState('All Status');
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-    const filteredPOs = pos.filter(po =>
-        po.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (po.po_number && po.po_number.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const statuses = ['All Status', 'Open', 'Progress', 'Closed'];
+
+    const filteredPOs = pos.filter(po => {
+        const matchesSearch = po.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (po.po_number && po.po_number.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        const matchesStatus = selectedStatus === 'All Status' ||
+            (po.status && po.status.toLowerCase() === selectedStatus.toLowerCase());
+
+        return matchesSearch && matchesStatus;
+    });
 
     return (
         <div style={{
@@ -48,23 +57,78 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
                             }}
                         />
                     </div>
-                    <button style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        border: '1px solid #f3f4f6',
-                        backgroundColor: '#f9fafb',
-                        color: '#374151',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        cursor: 'pointer'
-                    }}>
-                        <Filter size={16} />
-                        All Status
-                        <ChevronDown size={14} />
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 12px',
+                                borderRadius: '8px',
+                                border: '1px solid #f3f4f6',
+                                backgroundColor: '#f9fafb',
+                                color: '#374151',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            <Filter size={16} />
+                            {selectedStatus}
+                            <ChevronDown size={14} style={{
+                                transform: isDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s'
+                            }} />
+                        </button>
+
+                        {isDropdownOpen && (
+                            <div style={{
+                                position: 'absolute',
+                                top: 'calc(100% + 4px)',
+                                right: 0,
+                                backgroundColor: '#fff',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                                zIndex: 10,
+                                minWidth: '150px',
+                                overflow: 'hidden'
+                            }}>
+                                {statuses.map((status) => (
+                                    <div
+                                        key={status}
+                                        onClick={() => {
+                                            setSelectedStatus(status);
+                                            setIsDropdownOpen(false);
+                                        }}
+                                        style={{
+                                            padding: '10px 16px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            color: selectedStatus === status ? '#2563eb' : '#374151',
+                                            backgroundColor: selectedStatus === status ? '#eff6ff' : '#fff',
+                                            fontWeight: selectedStatus === status ? 600 : 400,
+                                            transition: 'all 0.15s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (selectedStatus !== status) {
+                                                e.target.style.backgroundColor = '#f9fafb';
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (selectedStatus !== status) {
+                                                e.target.style.backgroundColor = '#fff';
+                                            }
+                                        }}
+                                    >
+                                        {status}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

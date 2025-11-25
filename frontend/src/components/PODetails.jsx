@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Hash, Calendar, User, DollarSign, MapPin, Truck } from 'lucide-react';
+import { Building2, Hash, Calendar, User, DollarSign, MapPin, Truck, Mail } from 'lucide-react';
 import { LineItemsTable } from './LineItemsTable';
 
 export function PODetails({ po, onExtract, isExtracting, extractedData }) {
@@ -19,6 +19,7 @@ export function PODetails({ po, onExtract, isExtracting, extractedData }) {
                     <InfoItem icon={Calendar} label="Order Date" value={data.date} />
                     <InfoItem icon={Truck} label="Delivery Date" value={data.delivery_date} />
                     <InfoItem icon={User} label="Ordered By" value={data.ordered_by} />
+                    <InfoItem icon={Mail} label="Customer Email" value={data.customer_email} />
                     <InfoItem icon={DollarSign} label="Total Amount" value={data.total_amount} />
                 </div>
             </SectionCard>

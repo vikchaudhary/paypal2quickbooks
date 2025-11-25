@@ -49,7 +49,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
             }}>
                 <thead>
                     <tr style={{ borderBottom: editable ? 'none' : '1px solid #f3f4f6' }}>
-                        <th style={thStyle}>Product Name</th>
+                        <th style={thStyle}>Product</th>
                         <th style={thStyle}>Description</th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '80px' : 'auto' }}>Qty</th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '100px' : 'auto' }}>
@@ -72,11 +72,11 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                             <tr
                                 key={itemId}
                                 style={{
-                                    backgroundColor: editable ? '#f9fafb' : 'transparent',
-                                    borderBottom: !editable && i < safeLineItems.length - 1 ? '1px solid #f9fafb' : 'none'
+                                    backgroundColor: editable ? '#f9fafb' : (i % 2 === 0 ? '#ffffff' : '#f9fafb'),
+                                    borderBottom: !editable && i < safeLineItems.length - 1 ? '1px solid #f3f4f6' : 'none'
                                 }}
                             >
-                                <td style={tdStyle}>
+                                <td style={{ ...tdStyle, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '300px' }}>
                                     {editable ? (
                                         <input
                                             type="text"
@@ -88,7 +88,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                         productName
                                     )}
                                 </td>
-                                <td style={tdStyle}>
+                                <td style={{ ...tdStyle, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '300px' }}>
                                     {editable ? (
                                         <input
                                             type="text"

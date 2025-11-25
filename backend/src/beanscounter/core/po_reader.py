@@ -82,10 +82,14 @@ class POReader:
 
     def _parse_text(self, text: str, tables: List[List[List[str]]], filename: str, ship_to_text: str = "", attn_text: str = "") -> Dict[str, Any]:
         """Heuristic parsing of text and tables."""
+        # Company domain to exclude from customer emails
+        COMPANY_DOMAIN = "indianbento.com"
+        
         data = {
             "source_file": filename,
             "customer": "Unknown",
             "customer_address": "Unknown",
+            "customer_email": "Unknown",
             "po_number": "Unknown",
             "order_date": "Unknown",
             "delivery_date": "Unknown",
@@ -94,6 +98,7 @@ class POReader:
             "total_amount": "Unknown",
             "items": []
         }
+
 
         lines = text.split('\n')
         # DEBUG: Print raw text
@@ -273,7 +278,7 @@ class POReader:
                 for j in range(start_idx + 1, min(start_idx + 8, len(lines))):
                     l = lines[j]
                     # Stop at keywords that indicate end of address block
-                    if any(k in l.lower() for k in ["ship to:", "bill to:", "item", "qty", "total", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:"]):
+                    if any(k in l.lower() for k in ["ship to:", "bill to:", "item", "qty", "total", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:", "product code", "item name", "extended cost"]):
                         break
                     if not l.strip():
                         continue
@@ -315,7 +320,7 @@ class POReader:
                     for j in range(bill_to_idx + 1, end_idx):
                         l = lines[j]
                         # Stop at keywords
-                        if any(k in l.lower() for k in ["ship to", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:", "status:"]):
+                        if any(k in l.lower() for k in ["ship to", "delivery:", "account #", "po #", "po#", "terms:", "ordered by:", "status:", "product code", "item name"]):
                             break
                         if not l.strip():
                             continue
@@ -338,7 +343,7 @@ class POReader:
             for line in attn_lines:
                 lower_line = line.lower()
                 # Stop at keywords
-                if any(k in lower_line for k in ["date:", "po #", "po#", "vendor", "ship to", "delivery:", "account #"]):
+                if any(k in lower_line for k in ["date:", "po #", "po#", "vendor", "ship to", "delivery:", "account #", "product code", "item name"]):
                     break
                 if not line.strip():
                     continue
@@ -386,7 +391,7 @@ class POReader:
                 for line in ship_lines[start_idx:]:
                     # Stop if we hit keywords indicating end of address block
                     lower_line = line.lower()
-                    if any(k in lower_line for k in ["terms", "net 30", "order qty", "unit cost", "amount", "total", "requested", "r e q u e s t e d"]):
+                    if any(k in lower_line for k in ["terms", "net 30", "order qty", "unit cost", "amount", "total", "requested", "r e q u e s t e d", "product code", "item name", "extended cost"]):
                         break
                     
                     addr_parts.append(line)
@@ -494,7 +499,92 @@ class POReader:
                                     "rate": rate,
                                     "price": price
                                 })
+
                                 items_found = True
+
+        # Method A.2: Specific UCSF Table Extraction (Header-based)
+        if not items_found:
+            # Look for the specific header: "Product Code Item Name Qty Size Cost Extended Cost"
+            # Note: "Extended Cost" might be on two lines in the PDF text representation, 
+            # but let's look for "Product Code" and "Item Name" on the same line.
+            header_idx = -1
+            for i, line in enumerate(lines):
+                if "product code" in line.lower() and "item name" in line.lower() and "qty" in line.lower():
+                    header_idx = i
+                    break
+            
+            if header_idx != -1:
+                # Found the header, parse subsequent lines
+                for j in range(header_idx + 1, len(lines)):
+                    line = lines[j].strip()
+                    if not line: continue
+                    
+                    # Stop at totals
+                    if "grand total" in line.lower() or "total" in line.lower():
+                        break
+                        
+                    # Parse row
+                    # Format: COLD-SAAG Veg,IndianBento,PunjabiSaagPaneer,5lb 4EACH (5 Pounds) $ 40.75 $ 163.00
+                    # The "4EACH" is a common issue where space is missing.
+                    
+                    # Regex to capture the components
+                    # 1. Product Code (start of line, non-space)
+                    # 2. Item Name (text until we hit the Qty/Size part)
+                    # 3. Qty (digits)
+                    # 4. Size (text)
+                    # 5. Cost (currency)
+                    # 6. Extended Cost (currency)
+                    
+                    # Try to split by the known structure at the end of the line first (Cost, Ext Cost)
+                    # Look for "$ <number> $ <number>" at the end
+                    
+                    # Regex for the end of the line: $ 40.75 $ 163.00
+                    # Allow for spaces between $ and number
+                    end_pattern = r"\$\s*([\d,]+\.\d{2})\s*\$\s*([\d,]+\.\d{2})$"
+                    end_match = re.search(end_pattern, line)
+                    
+                    if end_match:
+                        rate = float(end_match.group(1).replace(",", ""))
+                        price = float(end_match.group(2).replace(",", ""))
+                        
+                        # Remove the matched part from the line
+                        remaining = line[:end_match.start()].strip()
+                        
+                        # Now look for Qty and Size at the end of 'remaining'
+                        # Expecting: "4EACH (5 Pounds)" or "4 EACH (5 Pounds)"
+                        # Regex: (\d+)\s*([A-Za-z]+.*)$
+                        
+                        # Find the last digit sequence in the remaining string which is likely the Qty
+                        # But be careful about digits in Item Name.
+                        # Usually Qty is followed by Unit/Size.
+                        
+                        # Let's try to find the Qty which is a number followed by 'EACH' or similar
+                        qty_match = re.search(r"(\d+)\s*(EACH.*)$", remaining, re.IGNORECASE)
+                        
+                        if qty_match:
+                            qty = float(qty_match.group(1))
+                            # size = qty_match.group(2) # We don't need size for now
+                            
+                            # Everything before Qty is Product Code + Item Name
+                            prod_info = remaining[:qty_match.start()].strip()
+                            
+                            # Split Product Code and Item Name
+                            # Product Code is usually the first word
+                            parts = prod_info.split(None, 1)
+                            if len(parts) == 2:
+                                product_code = parts[0]
+                                item_name = parts[1]
+                                full_name = f"{product_code} {item_name}"
+                            else:
+                                full_name = prod_info
+                                
+                            data["items"].append({
+                                "product_name": full_name,
+                                "quantity": qty,
+                                "rate": rate,
+                                "price": price
+                            })
+                            items_found = True
 
         # Method B: Text-based line item extraction (fallback)
         if not items_found:
@@ -632,6 +722,32 @@ class POReader:
                     data["invoice_amount"] = float(amount_match.group(1).replace(",", ""))
                 except:
                     pass
+
+        # 7. Customer Email
+        # Extract all email addresses from the text
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        emails = re.findall(email_pattern, text)
+        
+        # Filter out company domain emails
+        customer_emails = [email for email in emails if COMPANY_DOMAIN not in email.lower()]
+        
+        if customer_emails:
+            # Define generic finance team email prefixes (in order of priority)
+            finance_prefixes = ['ap@', 'finance@', 'accounts@', 'billing@', 'orders@', 
+                              'accounting@', 'payable@', 'accountspayable@', 'invoices@']
+            
+            # First, try to find a generic finance team email
+            for prefix in finance_prefixes:
+                for email in customer_emails:
+                    if email.lower().startswith(prefix):
+                        data["customer_email"] = email
+                        break
+                if data["customer_email"] != "Unknown":
+                    break
+            
+            # If no finance email found, use the first customer email
+            if data["customer_email"] == "Unknown":
+                data["customer_email"] = customer_emails[0]
 
         return data
 

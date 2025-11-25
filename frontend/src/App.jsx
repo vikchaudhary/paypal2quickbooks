@@ -47,13 +47,59 @@ function App() {
         }
     };
 
-    const handleOpenFolder = async () => {
-        try {
-            await fetch('/api/invoices/pos/open-folder', { method: 'POST' });
-        } catch (error) {
-            console.error('Failed to open folder:', error);
-        }
+    const handleOpenFolder = () => {
+        // Create a hidden file input element
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.webkitdirectory = true;
+        input.directory = true;
+        input.multiple = true;
+
+        input.onchange = async (e) => {
+            const files = e.target.files;
+            if (files.length > 0) {
+                // Get the folder path from the first file
+                // The webkitRelativePath gives us "foldername/filename"
+                const firstFile = files[0];
+                const relativePath = firstFile.webkitRelativePath;
+                const folderName = relativePath.split('/')[0];
+
+                // Construct the full path (this is a limitation - we can only get relative path in browser)
+                // We'll need to send the folder name and let backend resolve it
+                // For now, we'll extract the common parent path
+
+                // Alternative: Get the path from File API if available
+                // Modern browsers don't expose full filesystem paths for security
+                // So we'll use a different approach: send files to backend
+
+                // Better approach: Ask user to paste the folder path
+                const folderPath = prompt('Please paste the full folder path:', '');
+
+                if (folderPath) {
+                    try {
+                        const response = await fetch('/api/invoices/pos/set-folder', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ folder_path: folderPath })
+                        });
+
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.status === 'success') {
+                                // Refresh the PO list
+                                await fetchPOs();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to set folder:', error);
+                    }
+                }
+            }
+        };
+
+        input.click();
     };
+
 
     const handleClosePO = () => {
         setSelectedPO(null);

@@ -6,6 +6,7 @@ export function InvoiceForm({ po }) {
     const [invoiceData, setInvoiceData] = useState({
         invoiceNumber: '',
         referencePO: '',
+        customerEmail: '',
         invoiceDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         lineItems: [],
@@ -18,6 +19,7 @@ export function InvoiceForm({ po }) {
                 ...prev,
                 referencePO: po.po_number || po.filename || '',
                 invoiceNumber: `INV-${po.po_number || '001'}`,
+                customerEmail: po.customer_email || '',
                 lineItems: po.line_items && po.line_items.length > 0 ? po.line_items.map((item, index) => ({
                     id: index + 1,
                     product: item.product_name || '',
@@ -87,6 +89,15 @@ export function InvoiceForm({ po }) {
                             style={inputStyle}
                         />
                     </FormGroup>
+                    <FormGroup label="Customer Email">
+                        <input
+                            type="email"
+                            value={invoiceData.customerEmail}
+                            onChange={(e) => setInvoiceData({ ...invoiceData, customerEmail: e.target.value })}
+                            style={inputStyle}
+                            placeholder="customer@example.com"
+                        />
+                    </FormGroup>
                     <FormGroup label="Invoice Date">
                         <input
                             type="date"
@@ -105,13 +116,25 @@ export function InvoiceForm({ po }) {
                     </FormGroup>
                 </div>
 
-                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                    <h4 style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Bill To</h4>
-                    <div style={{ fontSize: '14px', color: '#111827', fontWeight: 500 }}>Global Solutions Ltd</div>
-                    <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-                        555 Enterprise Way<br />
-                        Austin, TX 73301<br />
-                        USA
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+                    <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Bill To</h4>
+                        <div style={{ fontSize: '14px', color: '#111827', fontWeight: 500 }}>
+                            {po?.bill_to?.name || 'Unknown'}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', whiteSpace: 'pre-line' }}>
+                            {po?.bill_to?.address || 'No address available'}
+                        </div>
+                    </div>
+
+                    <div style={{ padding: '16px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                        <h4 style={{ fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>Ship To</h4>
+                        <div style={{ fontSize: '14px', color: '#111827', fontWeight: 500 }}>
+                            {po?.ship_to?.name || 'Unknown'}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px', whiteSpace: 'pre-line' }}>
+                            {po?.ship_to?.address || 'No address available'}
+                        </div>
                     </div>
                 </div>
             </div>

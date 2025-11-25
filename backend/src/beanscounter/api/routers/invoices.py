@@ -96,6 +96,7 @@ def list_pos() -> List[Dict[str, str]]:
     
     return pos
 
+
 @router.post("/pos/open-folder")
 def open_folder():
     """Open the PO directory in the system file explorer."""
@@ -112,6 +113,33 @@ def open_folder():
         return {"status": "opened"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/pos/set-folder")
+def set_folder(request: Dict[str, str]):
+    """Set the PO directory from frontend folder selection."""
+    global PO_DIR
+    
+    try:
+        folder_path = request.get("folder_path")
+        if not folder_path:
+            raise HTTPException(status_code=400, detail="folder_path is required")
+            
+        path = Path(folder_path)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Folder not found")
+        if not path.is_dir():
+            raise HTTPException(status_code=400, detail="Path is not a directory")
+        
+        PO_DIR = path
+        return {"status": "success", "path": str(PO_DIR)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
 
 @router.get("/pos/{filename}/file")
 def get_po_file(filename: str):
@@ -162,6 +190,7 @@ def parse_po(filename: str) -> Dict[str, Any]:
             "date": data.get("order_date", "Unknown"),
             "delivery_date": data.get("delivery_date", "Unknown"),
             "ordered_by": data.get("ordered_by", "Unknown"),
+            "customer_email": data.get("customer_email", "Unknown"),
             "total_amount": f"${data.get('invoice_amount', 0):.2f}",
             "bill_to": {
                 "name": data.get("customer", "Unknown"),
