@@ -7,18 +7,20 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
 
     const thStyle = {
         textAlign: 'left',
-        padding: editable ? '0 10px' : '12px 0',
+        padding: editable ? '0 10px' : '12px 10px',
         fontSize: '12px',
         fontWeight: 600,
         color: editable ? '#6b7280' : '#374151',
         textTransform: 'uppercase',
-        letterSpacing: '0.05em'
+        letterSpacing: '0.05em',
+        verticalAlign: 'top'
     };
 
     const tdStyle = {
-        padding: editable ? '8px' : '16px 0',
+        padding: editable ? '8px 10px' : '16px 10px',
         fontSize: '14px',
-        color: '#4b5563'
+        color: '#4b5563',
+        verticalAlign: 'top'
     };
 
     const inputStyle = {
@@ -40,6 +42,15 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
         return sum + amount;
     }, 0);
 
+    // Helper function to format currency values
+    const formatCurrency = (value) => {
+        if (value === null || value === undefined || value === '') return '$0.00';
+        const numValue = typeof value === 'string'
+            ? parseFloat(value.replace(/[^0-9.-]+/g, '')) || 0
+            : parseFloat(value) || 0;
+        return `$${numValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
     return (
         <div style={{ overflowX: 'auto' }}>
             <table style={{
@@ -53,7 +64,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                         <th style={thStyle}>Description</th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '80px' : 'auto' }}>Qty</th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '100px' : 'auto' }}>
-                            {editable ? 'Rate' : 'Price'}
+                            Rate
                         </th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '100px' : 'auto' }}>Amount</th>
                         {editable && <th style={{ width: '40px' }}></th>}
@@ -121,7 +132,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                             style={inputStyle}
                                         />
                                     ) : (
-                                        unitPrice
+                                        formatCurrency(unitPrice)
                                     )}
                                 </td>
                                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: editable ? 500 : 600, color: '#111827' }}>
@@ -130,7 +141,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                             ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                             : amount
                                     ) : (
-                                        amount
+                                        formatCurrency(amount)
                                     )}
                                 </td>
                                 {editable && (
@@ -173,12 +184,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                 borderTop: editable ? '1px solid #e5e7eb' : 'none'
                             }}
                         >
-                            {editable
-                                ? `$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                : (typeof safeLineItems[0]?.amount === 'string' && safeLineItems[0]?.amount.includes('$'))
-                                    ? `$${totalAmount.toFixed(2)}`
-                                    : totalAmount
-                            }
+                            {formatCurrency(totalAmount)}
                         </td>
                         {editable && <td></td>}
                     </tr>

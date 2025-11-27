@@ -370,10 +370,77 @@ class QuickBooksClient:
             Invoice data or None if not found
         """
         safe_doc = docnumber.replace("'", "''")
-        q = f"select Id, DocNumber, TxnDate, TotalAmt from Invoice where DocNumber = '{safe_doc}'"
+        q = f"select Id, DocNumber, TxnDate, TotalAmt, Balance, EmailStatus from Invoice where DocNumber = '{safe_doc}'"
         res = self.query(q)
         invs = res.get("QueryResponse", {}).get("Invoice", [])
         return invs[0] if invs else None
+    
+    def get_invoice_status(self, invoice_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get invoice status information (EmailStatus, Balance) from QuickBooks.
+        
+        Args:
+            invoice_id: QuickBooks invoice ID
+            
+        Returns:
+            Dictionary with status info: {"email_status": str, "balance": float, "total_amount": float}
+            or None if invoice not found
+        """
+        safe_id = invoice_id.replace("'", "''")
+        q = f"select Id, DocNumber, EmailStatus, Balance, TotalAmt from Invoice where Id = '{safe_id}'"
+        try:
+            res = self.query(q)
+            invs = res.get("QueryResponse", {}).get("Invoice", [])
+            if not invs:
+                return None
+            
+            invoice = invs[0] if isinstance(invs, list) else invs
+            return {
+                "email_status": invoice.get("EmailStatus"),
+                "balance": float(invoice.get("Balance", 0)),
+                "total_amount": float(invoice.get("TotalAmt", 0))
+            }
+        except Exception as e:
+            print(f"Error getting invoice status: {e}")
+            return None
+    
+    def find_last_invoice_for_customer(self, customer_id: str) -> Optional[Dict]:
+        """
+        Find the most recent invoice for a customer, ordered by creation date.
+        
+        Args:
+            customer_id: QuickBooks customer ID
+            
+        Returns:
+            Most recent invoice data or None if no invoices found
+        """
+        safe_id = customer_id.replace("'", "''")
+        # Query invoices for this customer, ordered by TxnDate descending, limit 1
+        # QuickBooks query syntax: orderby field desc maxresults n
+        q = f"select Id, DocNumber, TxnDate, TotalAmt from Invoice where CustomerRef = '{safe_id}' orderby TxnDate desc maxresults 1"
+        try:
+            res = self.query(q)
+            invs = res.get("QueryResponse", {}).get("Invoice", [])
+            # Handle single dict vs list
+            if isinstance(invs, dict):
+                return invs
+            return invs[0] if invs else None
+        except Exception as e:
+            # If query fails (e.g., no invoices), return None
+            print(f"Error finding last invoice: {e}")
+            return None
+    
+    def invoice_number_exists(self, docnumber: str) -> bool:
+        """
+        Check if an invoice with the given document number already exists.
+        
+        Args:
+            docnumber: Invoice document number to check
+            
+        Returns:
+            True if invoice exists, False otherwise
+        """
+        return self.find_invoice_by_docnumber(docnumber) is not None
     
     def build_invoice_body(self, customer_ref: Dict, doc_number: str, invoice_date: str, 
                           due_date: str, term_ref: Dict, line_objects: List[Dict]) -> Dict:

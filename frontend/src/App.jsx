@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { POList } from './components/POList';
 import { POMainView } from './components/POMainView';
+import { SettingsPage } from './pages/SettingsPage';
 
 function App() {
+    const [currentView, setCurrentView] = useState('pos'); // 'pos' or 'settings'
     const [pos, setPos] = useState([]);
     const [selectedPO, setSelectedPO] = useState(null);
     const [isExtracting, setIsExtracting] = useState(false);
@@ -143,45 +145,76 @@ function App() {
                         <p style={{ fontSize: '12px', color: '#6b7280', margin: 0 }}>Manage purchase orders and generate invoices</p>
                     </div>
                 </div>
-                <button
-                    onClick={handleOpenFolder}
-                    style={{
-                        backgroundColor: '#0f172a',
-                        color: '#fff',
-                        border: 'none',
-                        padding: '8px 16px',
-                        borderRadius: '6px',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                    }}
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                    Open POs
-                </button>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    {currentView === 'pos' && (
+                        <button
+                            onClick={handleOpenFolder}
+                            style={{
+                                backgroundColor: '#0f172a',
+                                color: '#fff',
+                                border: 'none',
+                                padding: '8px 16px',
+                                borderRadius: '6px',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            Open POs
+                        </button>
+                    )}
+                    <button
+                        onClick={() => setCurrentView(currentView === 'settings' ? 'pos' : 'settings')}
+                        style={{
+                            backgroundColor: currentView === 'settings' ? '#3b82f6' : '#fff',
+                            color: currentView === 'settings' ? '#fff' : '#374151',
+                            border: '1px solid #e5e7eb',
+                            padding: '8px 16px',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                        </svg>
+                        Settings
+                    </button>
+                </div>
             </div>
 
             {/* Main Content */}
-            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-                <POList
-                    pos={pos}
-                    selectedPO={selectedPO}
-                    onSelectPO={handleSelectPO}
-                    onOpenFolder={handleOpenFolder}
-                />
-                <POMainView
-                    po={selectedPO}
-                    onExtract={handleExtract}
-                    isExtracting={isExtracting}
-                    extractedData={extractedData}
-                    onClose={handleClosePO}
-                />
-            </div>
+            {currentView === 'settings' ? (
+                <SettingsPage onBackToHome={() => setCurrentView('pos')} />
+            ) : (
+                <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+                    <POList
+                        pos={pos}
+                        selectedPO={selectedPO}
+                        onSelectPO={handleSelectPO}
+                        onOpenFolder={handleOpenFolder}
+                    />
+                    <POMainView
+                        po={selectedPO}
+                        onExtract={handleExtract}
+                        isExtracting={isExtracting}
+                        extractedData={extractedData}
+                        onClose={handleClosePO}
+                        onRefreshPOList={fetchPOs}
+                    />
+                </div>
+            )}
         </div>
     );
 }

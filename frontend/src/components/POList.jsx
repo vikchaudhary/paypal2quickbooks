@@ -1,14 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Filter, ChevronDown, FileText } from 'lucide-react';
+import { getInvoiceRecord } from '../services/invoiceApi';
 
 export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedStatus, setSelectedStatus] = useState('All Status');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [invoiceRecords, setInvoiceRecords] = useState({}); // Map of filename -> invoice record
 
-    const statuses = ['All Status', 'Open', 'Progress', 'Closed'];
+    const statuses = ['All Status', 'New Order', 'Invoice Prepared', 'Invoice Sent', 'Invoice Paid'];
 
-    const filteredPOs = pos.filter(po => {
+    // Load invoice records for all POs to get accurate status
+    useEffect(() => {
+        const loadInvoiceRecords = async () => {
+            const records = {};
+            const promises = pos.map(async (po) => {
+                if (po?.filename) {
+                    try {
+                        const result = await getInvoiceRecord(po.filename);
+                        if (result.invoice_record) {
+                            records[po.filename] = result.invoice_record;
+                        }
+                    } catch (error) {
+                        console.error(`Failed to load invoice record for ${po.filename}:`, error);
+                    }
+                }
+            });
+            await Promise.all(promises);
+            setInvoiceRecords(records);
+        };
+
+        if (pos.length > 0) {
+            loadInvoiceRecords();
+        }
+    }, [pos]);
+
+    // Map POs with status from invoice records
+    const posWithStatus = pos.map(po => {
+        // Get status from invoice record if available, otherwise from PO, otherwise default
+        const invoiceRecord = invoiceRecords[po.filename];
+        const status = invoiceRecord?.status || po?.status || 'New Order';
+        return { ...po, status };
+    });
+
+    const filteredPOs = posWithStatus.filter(po => {
         const matchesSearch = po.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (po.po_number && po.po_number.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -189,11 +224,13 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
 
 function StatusBadge({ status }) {
     const getStatusColor = (s) => {
-        switch (s.toLowerCase()) {
-            case 'open': return { bg: '#dcfce7', text: '#166534' };
-            case 'progress': return { bg: '#dbeafe', text: '#1e40af' };
-            case 'closed': return { bg: '#f3f4f6', text: '#374151' };
-            default: return { bg: '#f3f4f6', text: '#374151' };
+        const normalized = s.toLowerCase();
+        switch (normalized) {
+            case 'new order': return { bg: '#fee2e2', text: '#991b1b' }; // Red
+            case 'invoice prepared': return { bg: '#fef3c7', text: '#92400e' }; // Yellow
+            case 'invoice sent': return { bg: '#dbeafe', text: '#1e40af' }; // Blue
+            case 'invoice paid': return { bg: '#dcfce7', text: '#166534' }; // Green
+            default: return { bg: '#fee2e2', text: '#991b1b' }; // Default to red (New Order)
         }
     };
 

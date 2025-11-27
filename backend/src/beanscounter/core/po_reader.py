@@ -749,6 +749,35 @@ class POReader:
             if data["customer_email"] == "Unknown":
                 data["customer_email"] = customer_emails[0]
 
+        # 8. Try to match domain to company name if customer name is missing
+        if data.get("customer") == "Unknown" and data.get("customer_email") and data["customer_email"] != "Unknown":
+            try:
+                from beanscounter.services.domain_matching_service import get_company_name_from_email
+                # Try to get QB client, but don't fail if not configured
+                qb_client = None
+                try:
+                    from beanscounter.services.settings_service import get_qb_credentials
+                    from beanscounter.integrations.quickbooks_client import QuickBooksClient
+                    credentials = get_qb_credentials()
+                    if credentials:
+                        qb_client = QuickBooksClient(
+                            client_id=credentials["client_id"],
+                            client_secret=credentials["client_secret"],
+                            refresh_token=credentials["refresh_token"],
+                            realm_id=credentials["realm_id"],
+                            environment=credentials["environment"]
+                        )
+                except Exception:
+                    # QB not configured, continue without it
+                    pass
+                
+                suggested_name = get_company_name_from_email(data["customer_email"], qb_client)
+                if suggested_name:
+                    data["customer"] = suggested_name
+            except Exception as e:
+                # If domain matching fails, keep customer as "Unknown"
+                print(f"Domain matching failed: {e}")
+
         return data
 
     def print_invoice(self, data: Dict[str, Any]):

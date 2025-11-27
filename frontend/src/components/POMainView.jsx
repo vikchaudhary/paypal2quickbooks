@@ -4,8 +4,9 @@ import { FileViewer } from './FileViewer';
 import { PODetails } from './PODetails';
 import { InvoiceForm } from './InvoiceForm';
 
-export function POMainView({ po, onExtract, isExtracting, extractedData, onClose }) {
+export function POMainView({ po, onExtract, isExtracting, extractedData, onClose, onRefreshPOList }) {
     const [activeTab, setActiveTab] = useState('details');
+    const [refreshKey, setRefreshKey] = useState(0);
 
     if (!po) {
         return (
@@ -96,7 +97,7 @@ export function POMainView({ po, onExtract, isExtracting, extractedData, onClose
                         onClick={() => setActiveTab('details')}
                     />
                     <Tab
-                        label="Convert to Invoice"
+                        label="Invoice"
                         isActive={activeTab === 'invoice'}
                         onClick={() => setActiveTab('invoice')}
                     />
@@ -110,6 +111,7 @@ export function POMainView({ po, onExtract, isExtracting, extractedData, onClose
                 )}
                 {activeTab === 'details' && (
                     <PODetails
+                        key={refreshKey}
                         po={po}
                         onExtract={onExtract}
                         isExtracting={isExtracting}
@@ -117,7 +119,18 @@ export function POMainView({ po, onExtract, isExtracting, extractedData, onClose
                     />
                 )}
                 {activeTab === 'invoice' && (
-                    <InvoiceForm po={extractedData || po} />
+                    <InvoiceForm 
+                        po={extractedData || po} 
+                        poFilename={po?.filename}
+                        onInvoiceSaved={() => {
+                            // Refresh PO list
+                            if (onRefreshPOList) {
+                                onRefreshPOList();
+                            }
+                            // Force PODetails to refresh by changing key
+                            setRefreshKey(prev => prev + 1);
+                        }}
+                    />
                 )}
             </div>
         </div>
