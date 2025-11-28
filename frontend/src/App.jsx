@@ -11,11 +11,23 @@ function App() {
     const [extractedData, setExtractedData] = useState(null);
 
     const [qbConnectionError, setQbConnectionError] = useState(null);
+    const [isLoadingPOs, setIsLoadingPOs] = useState(true);
+    const [loadingProgress, setLoadingProgress] = useState({
+        folderPath: null,
+        files: []
+    });
 
     useEffect(() => {
         fetchPOs();
         checkQBConnection();
     }, []);
+
+    // Automatically select the first PO when list is loaded and no PO is selected
+    useEffect(() => {
+        if (!isLoadingPOs && pos.length > 0 && !selectedPO) {
+            handleSelectPO(pos[0]);
+        }
+    }, [isLoadingPOs, pos, selectedPO]);
 
     const checkQBConnection = async () => {
         try {
@@ -45,14 +57,33 @@ function App() {
     };
 
     const fetchPOs = async () => {
+        setIsLoadingPOs(true);
+        setLoadingProgress({ folderPath: null, files: [] });
+        
         try {
+            // First, get the folder path
+            const folderResponse = await fetch('/api/invoices/pos/folder-path');
+            let folderPath = null;
+            if (folderResponse.ok) {
+                const folderData = await folderResponse.json();
+                folderPath = folderData.folder_path;
+                setLoadingProgress(prev => ({ ...prev, folderPath }));
+            }
+            
+            // Then fetch POs
             const response = await fetch('/api/invoices/pos');
             if (response.ok) {
                 const data = await response.json();
                 setPos(data);
+                
+                // Update progress with processed files
+                const fileNames = data.map(po => po.filename);
+                setLoadingProgress(prev => ({ ...prev, files: fileNames }));
             }
         } catch (error) {
             console.error('Failed to fetch POs:', error);
+        } finally {
+            setIsLoadingPOs(false);
         }
     };
 
@@ -288,6 +319,8 @@ function App() {
                         extractedData={extractedData}
                         onClose={handleClosePO}
                         onRefreshPOList={fetchPOs}
+                        isLoadingPOs={isLoadingPOs}
+                        loadingProgress={loadingProgress}
                     />
                 </div>
             )}

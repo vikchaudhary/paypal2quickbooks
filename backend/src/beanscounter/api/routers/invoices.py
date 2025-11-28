@@ -54,6 +54,11 @@ def _determine_po_status(invoice_record: Optional[Dict[str, Any]]) -> str:
 def health():
     return {"status": "ok"}
 
+@router.get("/pos/folder-path")
+def get_folder_path() -> Dict[str, Any]:
+    """Get the current PO folder path."""
+    return {"folder_path": str(PO_DIR) if PO_DIR.exists() else None}
+
 @router.get("/pos")
 def list_pos() -> List[Dict[str, Any]]:
     """List available PO files with extracted metadata."""
@@ -62,9 +67,12 @@ def list_pos() -> List[Dict[str, Any]]:
     
     reader = POReader()
     pos = []
+    processed_files = []
     
     # Process PDF files
-    for f in PO_DIR.glob("*.pdf"):
+    pdf_files = list(PO_DIR.glob("*.pdf"))
+    for f in pdf_files:
+        processed_files.append(f.name)
         try:
             # Extract basic metadata from the PO
             extracted = reader.extract_data(f)
@@ -132,7 +140,9 @@ def list_pos() -> List[Dict[str, Any]]:
     
     # Also process image files
     for ext in ["*.png", "*.jpg", "*.jpeg"]:
-        for f in PO_DIR.glob(ext):
+        image_files = list(PO_DIR.glob(ext))
+        for f in image_files:
+            processed_files.append(f.name)
             try:
                 extracted = reader.extract_data(f)
                 
