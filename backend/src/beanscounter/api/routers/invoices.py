@@ -55,7 +55,7 @@ def health():
     return {"status": "ok"}
 
 @router.get("/pos")
-def list_pos() -> List[Dict[str, str]]:
+def list_pos() -> List[Dict[str, Any]]:
     """List available PO files with extracted metadata."""
     if not PO_DIR.exists():
         return []
@@ -78,15 +78,37 @@ def list_pos() -> List[Dict[str, str]]:
             invoice_record = invoice_records.get(f.name)
             status = _determine_po_status(invoice_record)
             
+            po_number = extracted.get("po_number", "")
+            
+            # Get source information if available
+            # First check by filename (for files downloaded from email)
+            # Then check by PO number (for files uploaded directly)
+            from beanscounter.services.po_metadata_service import get_po_source, save_po_source, get_po_source_by_filename
+            source_info = get_po_source_by_filename(f.name)
+            
+            # If not found by filename, try by PO number
+            if not source_info and po_number:
+                source_info = get_po_source(po_number)
+            
+            # If no source info exists, this is from a file (uploaded directly, not from email)
+            if not source_info and po_number:
+                save_po_source(
+                    po_number=po_number,
+                    source_type="file",
+                    filename=f.name
+                )
+                source_info = get_po_source(po_number)
+            
             pos.append({
                 "id": f.name,
                 "filename": f.name,
                 "vendor_name": extracted.get("customer", "Unknown"),  # Backend uses 'customer'
-                "po_number": extracted.get("po_number", ""),
+                "po_number": po_number,
                 "date": extracted.get("order_date", ""),  # Backend uses 'order_date'
                 "delivery_date": extracted.get("delivery_date", ""),
                 "amount": formatted_amount,  # Backend uses 'invoice_amount'
-                "status": status
+                "status": status,
+                "source": source_info
             })
         except Exception as e:
             # If extraction fails, still include the file with minimal info
@@ -104,7 +126,8 @@ def list_pos() -> List[Dict[str, str]]:
                 "date": "",
                 "delivery_date": "",
                 "amount": "",
-                "status": status
+                "status": status,
+                "source": None
             })
     
     # Also process image files
@@ -122,15 +145,37 @@ def list_pos() -> List[Dict[str, str]]:
                 invoice_record = invoice_records.get(f.name)
                 status = _determine_po_status(invoice_record)
                 
+                po_number = extracted.get("po_number", "")
+                
+                # Get source information if available
+                # First check by filename (for files downloaded from email)
+                # Then check by PO number (for files uploaded directly)
+                from beanscounter.services.po_metadata_service import get_po_source, save_po_source, get_po_source_by_filename
+                source_info = get_po_source_by_filename(f.name)
+                
+                # If not found by filename, try by PO number
+                if not source_info and po_number:
+                    source_info = get_po_source(po_number)
+                
+                # If no source info exists, this is from a file (uploaded directly, not from email)
+                if not source_info and po_number:
+                    save_po_source(
+                        po_number=po_number,
+                        source_type="file",
+                        filename=f.name
+                    )
+                    source_info = get_po_source(po_number)
+                
                 pos.append({
                     "id": f.name,
                     "filename": f.name,
                     "vendor_name": extracted.get("customer", "Unknown"),
-                    "po_number": extracted.get("po_number", ""),
+                    "po_number": po_number,
                     "date": extracted.get("order_date", ""),
                     "delivery_date": extracted.get("delivery_date", ""),
                     "amount": formatted_amount,
-                    "status": status
+                    "status": status,
+                    "source": source_info
                 })
             except Exception as e:
                 print(f"Error extracting {f.name}: {e}")
@@ -147,7 +192,8 @@ def list_pos() -> List[Dict[str, str]]:
                     "date": "",
                     "delivery_date": "",
                     "amount": "",
-                    "status": status
+                    "status": status,
+                    "source": None
                 })
     
     return pos

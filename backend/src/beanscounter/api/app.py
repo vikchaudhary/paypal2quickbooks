@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from beanscounter.api.routers.invoices import router as invoices_router
 from beanscounter.api.routers.settings import router as settings_router
 from beanscounter.api.routers.quickbooks import router as quickbooks_router
+from beanscounter.api.routers.gmail import router as gmail_router
 
 app = FastAPI()
 
@@ -18,3 +19,4 @@ app.add_middleware(
 app.include_router(invoices_router)
 app.include_router(settings_router)
 app.include_router(quickbooks_router)
+app.include_router(gmail_router)

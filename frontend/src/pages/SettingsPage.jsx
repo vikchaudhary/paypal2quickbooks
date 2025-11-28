@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, ChevronRight, ArrowLeft } from 'lucide-react';
 import { QuickBooksSettingsPage } from './QuickBooksSettingsPage';
+import { GmailSettingsPage } from './GmailSettingsPage';
 
 export function SettingsPage({ onBackToHome }) {
     const [activeSection, setActiveSection] = useState('quickbooks');
 
     const sections = [
-        { id: 'quickbooks', label: 'QuickBooks', icon: SettingsIcon }
+        { id: 'quickbooks', label: 'QuickBooks', icon: SettingsIcon },
+        { id: 'gmail', label: 'Gmail', icon: Mail }
     ];
 
     return (
@@ -82,6 +84,7 @@ export function SettingsPage({ onBackToHome }) {
             {/* Content Area */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
                 {activeSection === 'quickbooks' && <QuickBooksSettingsPage />}
+                {activeSection === 'gmail' && <GmailSettingsPage />}
             </div>
         </div>
     );

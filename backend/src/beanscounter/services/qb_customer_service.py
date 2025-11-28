@@ -209,49 +209,81 @@ def search_customers_by_domain(domain: str) -> List[Dict[str, Any]]:
         
         # QuickBooks doesn't support direct email domain queries in WHERE clause
         # We need to fetch customers and filter by email domain
-        # Use a broad query to get customers with email addresses
-        query = "select Id, DisplayName, CompanyName, GivenName, FamilyName, PrimaryEmailAddr from Customer"
+        # Use a broad query to get customers with email addresses and web addresses
+        # Handle pagination to get all customers
+        all_customers = []
+        max_results = 1000
+        start_position = 1
         
-        try:
-            result = qb_client.query(query)
-            customers_raw = result.get("QueryResponse", {}).get("Customer", [])
+        while True:
+            query = f"select Id, DisplayName, CompanyName, GivenName, FamilyName, PrimaryEmailAddr, WebAddr from Customer maxresults {max_results} startposition {start_position}"
             
-            # Handle single dict vs list
-            if isinstance(customers_raw, dict):
-                all_customers = [customers_raw]
-            else:
-                all_customers = customers_raw if isinstance(customers_raw, list) else []
-            
-            # Filter customers by email domain
-            matching_customers = []
-            for cust in all_customers:
-                email_addr = cust.get("PrimaryEmailAddr", {})
-                if isinstance(email_addr, dict):
-                    email = email_addr.get("Address", "")
-                else:
-                    email = ""
+            try:
+                result = qb_client.query(query)
+                query_response = result.get("QueryResponse", {})
+                customers_raw = query_response.get("Customer", [])
                 
-                if email and normalized_domain in normalize_domain(email):
-                    matching_customers.append(cust)
+                # Handle single dict vs list
+                if isinstance(customers_raw, dict):
+                    all_customers.append(customers_raw)
+                elif isinstance(customers_raw, list):
+                    all_customers.extend(customers_raw)
+                
+                # Check if there are more results
+                max_results_returned = query_response.get("maxResults", 0)
+                if not customers_raw or len(customers_raw) < max_results_returned:
+                    break
+                
+                start_position += max_results_returned
+            except Exception as e:
+                print(f"Error querying customers (page {start_position}): {e}")
+                break
+        
+        # Filter customers by email domain (after collecting all customers)
+        from beanscounter.core.domain_utils import extract_domain
+        matching_customers = []
+        for cust in all_customers:
+            email_addr = cust.get("PrimaryEmailAddr", {})
+            if isinstance(email_addr, dict):
+                email = email_addr.get("Address", "")
+            else:
+                email = ""
             
-            # Normalize customer data
-            normalized = []
-            for cust in matching_customers:
-                normalized.append({
-                    "id": cust.get("Id"),
-                    "name": cust.get("DisplayName", ""),
-                    "display_name": cust.get("DisplayName", ""),
-                    "company_name": cust.get("CompanyName"),
-                    "given_name": cust.get("GivenName"),
-                    "family_name": cust.get("FamilyName"),
-                    "email": cust.get("PrimaryEmailAddr", {}).get("Address") if isinstance(cust.get("PrimaryEmailAddr"), dict) else None
-                })
+            if email:
+                # Extract domain from email and normalize it
+                email_domain = extract_domain(email)
+                if email_domain:
+                    email_domain_normalized = normalize_domain(email_domain)
+                    # Check if the normalized email domain matches the search domain
+                    if email_domain_normalized == normalized_domain:
+                        matching_customers.append(cust)
             
-            return normalized
-        except Exception as e:
-            # If query fails, return empty list
-            print(f"Error querying customers: {e}")
-            return []
+            # Also check WebAddr for domain matching
+            web_addr = cust.get("WebAddr", {})
+            if isinstance(web_addr, dict):
+                url = web_addr.get("URI", "")
+                if url:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    if parsed.netloc:
+                        web_domain = normalize_domain(parsed.netloc)
+                        if web_domain == normalized_domain:
+                            matching_customers.append(cust)
+        
+        # Normalize customer data
+        normalized = []
+        for cust in matching_customers:
+            normalized.append({
+                "id": cust.get("Id"),
+                "name": cust.get("DisplayName", ""),
+                "display_name": cust.get("DisplayName", ""),
+                "company_name": cust.get("CompanyName"),
+                "given_name": cust.get("GivenName"),
+                "family_name": cust.get("FamilyName"),
+                "email": cust.get("PrimaryEmailAddr", {}).get("Address") if isinstance(cust.get("PrimaryEmailAddr"), dict) else None
+            })
+        
+        return normalized
     except Exception as e:
         print(f"Error searching customers by domain: {e}")
         return []

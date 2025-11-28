@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Hash, Calendar, User, DollarSign, MapPin, Truck, Mail, Sparkles, Check, X, Tag } from 'lucide-react';
+import { Building2, Hash, Calendar, User, DollarSign, MapPin, Truck, Mail, Sparkles, Check, X, Tag, FileText } from 'lucide-react';
 import { LineItemsTable } from './LineItemsTable';
 import { suggestCompanyFromEmail, getInvoiceRecord } from '../services/invoiceApi';
 
@@ -195,6 +195,7 @@ export function PODetails({ po, onExtract, isExtracting, extractedData, onInvoic
                     <InfoItem icon={User} label="Ordered By" value={data.ordered_by} />
                     <InfoItem icon={Mail} label="Customer Email" value={data.customer_email} />
                     <InfoItem icon={DollarSign} label="Total Amount" value={data.total_amount} />
+                    <InfoItem icon={FileText} label="Source" value={<SourceDisplay source={po?.source} />} />
                 </div>
             </SectionCard>
 
@@ -293,4 +294,48 @@ function StatusBadge({ status }) {
             {status}
         </span>
     );
+}
+
+function SourceDisplay({ source }) {
+    if (!source) {
+        return <span style={{ color: '#6b7280' }}>Unknown</span>;
+    }
+    
+    const formatDate = (dateStr) => {
+        if (!dateStr) return 'Unknown';
+        try {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        } catch {
+            return dateStr;
+        }
+    };
+    
+    if (source.source_type === 'email') {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 500, color: '#111827' }}>
+                    Email
+                </div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Subject: {source.email_subject || 'No Subject'}
+                </div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Date: {formatDate(source.email_date)}
+                </div>
+            </div>
+        );
+    } else if (source.source_type === 'file') {
+        return (
+            <div style={{ fontSize: '14px', fontWeight: 500, color: '#111827' }}>
+                File {source.filename || 'Unknown file'}
+            </div>
+        );
+    }
+    
+    return <span style={{ color: '#6b7280' }}>Unknown</span>;
 }

@@ -1,14 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Filter, ChevronDown, FileText } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Filter, ChevronDown, FileText, RefreshCw, Mail } from 'lucide-react';
 import { getInvoiceRecord } from '../services/invoiceApi';
+import { getGmailSettings, syncGmailEmails } from '../services/gmailApi';
 
-export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
+export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOList }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedStatus, setSelectedStatus] = useState('All Status');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [invoiceRecords, setInvoiceRecords] = useState({}); // Map of filename -> invoice record
+    const [gmailConfigured, setGmailConfigured] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncMessage, setSyncMessage] = useState(null);
+    const listRef = useRef(null);
 
     const statuses = ['All Status', 'New Order', 'Invoice Prepared', 'Invoice Sent', 'Invoice Paid'];
+
+    // Check if Gmail is configured
+    useEffect(() => {
+        const checkGmailConfig = async () => {
+            try {
+                const settings = await getGmailSettings();
+                setGmailConfigured(settings.configured || false);
+            } catch (error) {
+                console.error('Failed to check Gmail config:', error);
+                setGmailConfigured(false);
+            }
+        };
+        checkGmailConfig();
+    }, []);
 
     // Load invoice records for all POs to get accurate status
     useEffect(() => {
@@ -53,6 +72,76 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
         return matchesSearch && matchesStatus;
     });
 
+    // Keyboard navigation with arrow keys
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Only handle arrow keys if not typing in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                
+                if (filteredPOs.length === 0) return;
+                
+                const currentIndex = filteredPOs.findIndex(po => po.id === selectedPO?.id);
+                let newIndex;
+                
+                if (e.key === 'ArrowDown') {
+                    newIndex = currentIndex < filteredPOs.length - 1 ? currentIndex + 1 : 0;
+                } else {
+                    newIndex = currentIndex > 0 ? currentIndex - 1 : filteredPOs.length - 1;
+                }
+                
+                if (newIndex >= 0 && newIndex < filteredPOs.length) {
+                    onSelectPO(filteredPOs[newIndex]);
+                    
+                    // Scroll the selected PO into view
+                    setTimeout(() => {
+                        const selectedElement = listRef.current?.querySelector(`[data-po-id="${filteredPOs[newIndex].id}"]`);
+                        if (selectedElement) {
+                            selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }, 0);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [filteredPOs, selectedPO, onSelectPO]);
+
+    const handleSyncGmail = async () => {
+        try {
+            setSyncing(true);
+            setSyncMessage(null);
+            const result = await syncGmailEmails();
+            if (result.success) {
+                setSyncMessage(
+                    `Synced! Processed ${result.emails_processed} emails, ` +
+                    `downloaded ${result.pdfs_downloaded} PDFs.`
+                );
+                // Refresh PO list after successful sync
+                if (onRefreshPOList) {
+                    setTimeout(() => {
+                        onRefreshPOList();
+                    }, 1000);
+                }
+            } else {
+                setSyncMessage(`Sync failed: ${result.errors?.join(', ') || 'Unknown error'}`);
+            }
+        } catch (error) {
+            setSyncMessage(`Sync failed: ${error.message}`);
+        } finally {
+            setSyncing(false);
+            // Clear message after 5 seconds
+            setTimeout(() => setSyncMessage(null), 5000);
+        }
+    };
+
     return (
         <div style={{
             width: '380px',
@@ -65,7 +154,70 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
             <div style={{ padding: '24px 20px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#111827' }}>Purchase Orders</h2>
+                    {gmailConfigured && (
+                        <button
+                            onClick={handleSyncGmail}
+                            disabled={syncing}
+                            title="Sync Gmail for new POs"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #e5e7eb',
+                                backgroundColor: syncing ? '#f3f4f6' : '#fff',
+                                color: syncing ? '#9ca3af' : '#374151',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                cursor: syncing ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                                if (!syncing) {
+                                    e.target.style.backgroundColor = '#f9fafb';
+                                }
+                            }}
+                            onMouseLeave={(e) => {
+                                if (!syncing) {
+                                    e.target.style.backgroundColor = '#fff';
+                                }
+                            }}
+                        >
+                            {syncing ? (
+                                <>
+                                    <div style={{ 
+                                        width: '14px', 
+                                        height: '14px', 
+                                        border: '2px solid #e5e7eb',
+                                        borderTop: '2px solid #6b7280',
+                                        borderRadius: '50%',
+                                        animation: 'spin 1s linear infinite'
+                                    }}></div>
+                                    Syncing...
+                                </>
+                            ) : (
+                                <>
+                                    <Mail size={14} />
+                                    Sync Gmail
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
+                {syncMessage && (
+                    <div style={{
+                        padding: '8px 12px',
+                        marginBottom: '12px',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        backgroundColor: syncMessage.includes('failed') ? '#fef2f2' : '#f0fdf4',
+                        color: syncMessage.includes('failed') ? '#991b1b' : '#166534',
+                        border: `1px solid ${syncMessage.includes('failed') ? '#fecaca' : '#bbf7d0'}`
+                    }}>
+                        {syncMessage}
+                    </div>
+                )}
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <div style={{
@@ -167,10 +319,11 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
                 </div>
             </div>
 
-            <div style={{ overflowY: 'auto', flex: 1, padding: '0 12px 20px' }}>
+            <div ref={listRef} style={{ overflowY: 'auto', flex: 1, padding: '0 12px 20px' }}>
                 {filteredPOs.map((po) => (
                     <div
                         key={po.id}
+                        data-po-id={po.id}
                         onClick={() => onSelectPO(po)}
                         style={{
                             padding: '16px',
@@ -185,11 +338,14 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
                     >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                             <div>
-                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#111827' }}>
-                                    {po.po_number || po.filename}
-                                </div>
-                                <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '2px' }}>
                                     {po.vendor_name || 'Acme Corporation'}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                    <span style={{ fontSize: '11px', color: '#9ca3af' }}>PO#:</span>
+                                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>
+                                        {po.po_number}
+                                    </span>
                                 </div>
                             </div>
                             <StatusBadge status={po.status || 'Open'} />
@@ -199,13 +355,13 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                 <span style={{ fontSize: '11px', color: '#9ca3af' }}>Order Date:</span>
                                 <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>
-                                    {po.date || '11/14/2024'}
+                                    {formatDate(po.date) || formatDate('11/14/2024')}
                                 </span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                 <span style={{ fontSize: '11px', color: '#9ca3af' }}>Delivery:</span>
                                 <span style={{ fontSize: '13px', fontWeight: 500, color: '#374151' }}>
-                                    {po.delivery_date || '11/30/2024'}
+                                    {formatDate(po.delivery_date) || formatDate('11/30/2024')}
                                 </span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-end' }}>
@@ -220,6 +376,57 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder }) {
             </div>
         </div>
     );
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return null;
+    
+    try {
+        // Try parsing various date formats
+        let date;
+        
+        // Check if already in MM/DD/YYYY format
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+            return dateStr;
+        }
+        
+        // Try parsing MM/DD/YYYY or MM-DD-YYYY
+        if (dateStr.includes('/') || dateStr.includes('-')) {
+            const parts = dateStr.split(/[\/\-]/);
+            if (parts.length === 3) {
+                // Assume MM/DD/YYYY or MM-DD-YYYY
+                const month = parseInt(parts[0], 10);
+                const day = parseInt(parts[1], 10);
+                const year = parseInt(parts[2], 10);
+                
+                // Check if it's a valid date (month <= 12 suggests MM/DD/YYYY)
+                if (month <= 12 && day <= 31) {
+                    date = new Date(year, month - 1, day);
+                } else {
+                    // Might be DD/MM/YYYY, try swapping
+                    date = new Date(year, day - 1, month);
+                }
+            }
+        }
+        
+        // Try parsing ISO format (YYYY-MM-DD)
+        if (!date || isNaN(date.getTime())) {
+            date = new Date(dateStr);
+        }
+        
+        if (isNaN(date.getTime())) {
+            return dateStr; // Return original if can't parse
+        }
+        
+        // Format as MM/DD/YYYY
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const year = date.getFullYear();
+        
+        return `${month}/${day}/${year}`;
+    } catch (error) {
+        return dateStr; // Return original if error
+    }
 }
 
 function StatusBadge({ status }) {

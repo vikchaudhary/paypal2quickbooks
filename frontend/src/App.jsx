@@ -10,9 +10,39 @@ function App() {
     const [isExtracting, setIsExtracting] = useState(false);
     const [extractedData, setExtractedData] = useState(null);
 
+    const [qbConnectionError, setQbConnectionError] = useState(null);
+
     useEffect(() => {
         fetchPOs();
+        checkQBConnection();
     }, []);
+
+    const checkQBConnection = async () => {
+        try {
+            const response = await fetch('/api/settings/quickbooks/test', {
+                method: 'POST'
+            });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: 'QuickBooks connection failed' }));
+                setQbConnectionError(errorData.detail || 'QuickBooks connection failed');
+            } else {
+                setQbConnectionError(null);
+            }
+        } catch (error) {
+            // Only show error if QB is configured
+            try {
+                const settingsResponse = await fetch('/api/settings/quickbooks');
+                if (settingsResponse.ok) {
+                    const settings = await settingsResponse.json();
+                    if (settings.configured) {
+                        setQbConnectionError('Failed to check QuickBooks connection. Please verify your credentials in Settings.');
+                    }
+                }
+            } catch (e) {
+                // Ignore - QB might not be configured yet
+            }
+        }
+    };
 
     const fetchPOs = async () => {
         try {
@@ -194,6 +224,51 @@ function App() {
                 </div>
             </div>
 
+            {/* QuickBooks Connection Error Banner */}
+            {qbConnectionError && (
+                <div style={{
+                    backgroundColor: '#fef2f2',
+                    borderBottom: '1px solid #fecaca',
+                    padding: '12px 24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        <div>
+                            <div style={{ fontSize: '14px', fontWeight: 500, color: '#991b1b' }}>
+                                QuickBooks Connection Error
+                            </div>
+                            <div style={{ fontSize: '13px', color: '#dc2626', marginTop: '2px' }}>
+                                {qbConnectionError}
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setCurrentView('settings')}
+                        style={{
+                            backgroundColor: '#dc2626',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            marginLeft: '16px'
+                        }}
+                    >
+                        Go to QuickBooks Settings
+                    </button>
+                </div>
+            )}
+
             {/* Main Content */}
             {currentView === 'settings' ? (
                 <SettingsPage onBackToHome={() => setCurrentView('pos')} />
@@ -204,6 +279,7 @@ function App() {
                         selectedPO={selectedPO}
                         onSelectPO={handleSelectPO}
                         onOpenFolder={handleOpenFolder}
+                        onRefreshPOList={fetchPOs}
                     />
                     <POMainView
                         po={selectedPO}
