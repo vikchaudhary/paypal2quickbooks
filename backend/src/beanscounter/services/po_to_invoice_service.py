@@ -3,10 +3,11 @@ PO to Invoice Converter Service
 Converts PO data structure to QuickBooks invoice format and creates invoice.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from beanscounter.services.settings_service import get_qb_credentials
 from beanscounter.integrations.quickbooks_client import QuickBooksClient
+from beanscounter.services.product_mapping_service import get_sku_for_product_string
 
 
 def _format_date_for_qb(date_str: str) -> str:
@@ -50,6 +51,9 @@ def _format_date_for_qb(date_str: str) -> str:
 def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBooksClient) -> List[Dict[str, Any]]:
     """
     Convert PO line items to QuickBooks line items.
+    Uses product mapping to match ProductString to SKU when available.
+    Only uses existing QuickBooks items - does NOT create new items.
+    Unmatched products are added as DescriptionOnly lines (no item reference).
     
     Args:
         po_items: List of PO items with product_name, quantity, rate, price
@@ -59,6 +63,14 @@ def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBo
         List of QuickBooks line item objects
     """
     line_objects = []
+    
+    # Get all QuickBooks items to look up by SKU (read-only)
+    all_items = qb_client.get_all_items()
+    items_by_sku = {}
+    for qb_item in all_items:
+        sku = qb_item.get("Sku")
+        if sku:
+            items_by_sku[sku] = qb_item
     
     for item in po_items:
         product_name = item.get("product_name", "")
@@ -73,10 +85,15 @@ def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBo
         if price == 0 and qty > 0 and rate > 0:
             price = qty * rate
         
-        # Ensure item exists in QuickBooks
-        item_ref = qb_client.ensure_item(product_name, taxable=False)
+        # Try to find mapped SKU
+        sku = get_sku_for_product_string(product_name)
         
-        # Build line detail
+        if sku and sku in items_by_sku:
+            # Use the item with the matched SKU (existing item only)
+            qb_item = items_by_sku[sku]
+            item_ref = {"value": qb_item["Id"], "name": qb_item.get("Name", product_name)}
+        
+            # Build SalesItemLineDetail with item reference
         detail = {
             "DetailType": "SalesItemLineDetail",
             "Amount": round(price, 2),
@@ -88,6 +105,15 @@ def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBo
                 "TaxCodeRef": {"value": "NON"}  # Default to non-taxable
             }
         }
+        else:
+            # No match found - use DescriptionOnly line (no item reference)
+            # This allows the product to appear on the invoice without creating a new item
+            detail = {
+                "DetailType": "DescriptionOnly",
+                "Amount": round(price, 2),
+                "Description": f"{product_name} (Qty: {qty}, Rate: ${rate:.2f})"
+            }
+        
         line_objects.append(detail)
     
     return line_objects

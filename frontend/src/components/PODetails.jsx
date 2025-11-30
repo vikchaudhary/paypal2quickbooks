@@ -227,7 +227,7 @@ export function PODetails({ po, onExtract, isExtracting, extractedData, onInvoic
             {/* Products */}
             <div style={{ marginTop: '24px', backgroundColor: '#fff', borderRadius: '12px', padding: '24px', border: '1px solid #e5e7eb' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '20px' }}>Products</h3>
-                <LineItemsTable lineItems={data.line_items} editable={false} />
+                <LineItemsTable lineItems={data.line_items} editable={false} showMatchColumn={false} />
             </div>
 
             {/* Note */}

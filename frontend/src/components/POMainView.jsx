@@ -37,24 +37,39 @@ export function POMainView({ po, onExtract, isExtracting, extractedData, onClose
                     <div style={{
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: '12px',
+                        gap: '16px',
                         alignItems: 'flex-start',
                         maxWidth: '500px',
                         width: '100%'
                     }}>
                         {loadingProgress.folderPath && (
-                            <div style={{ fontSize: '14px', color: '#374151' }}>
-                                • Reading folder <span style={{ fontFamily: 'monospace', color: '#3b82f6' }}>{loadingProgress.folderPath}</span> to find purchase orders
+                            <div>
+                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e40af' }}>
+                                    Reading Folder
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#3b82f6', marginTop: '2px', fontFamily: 'monospace' }}>
+                                    {loadingProgress.folderPath}
+                                </div>
                             </div>
                         )}
                         {loadingProgress.files.map((filename, index) => (
-                            <div key={index} style={{ fontSize: '14px', color: '#374151' }}>
-                                • Reading <span style={{ fontFamily: 'monospace', color: '#3b82f6' }}>{filename}</span>... done
+                            <div key={index}>
+                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#166534' }}>
+                                    File Processed
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#15803d', marginTop: '2px', fontFamily: 'monospace' }}>
+                                    {filename}
+                                </div>
                             </div>
                         ))}
                         {!loadingProgress.folderPath && loadingProgress.files.length === 0 && (
-                            <div style={{ fontSize: '14px', color: '#374151' }}>
-                                • Loading purchase orders...
+                            <div>
+                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e40af' }}>
+                                    Loading Purchase Orders
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#3b82f6', marginTop: '2px' }}>
+                                    Please wait...
+                                </div>
                             </div>
                         )}
                     </div>

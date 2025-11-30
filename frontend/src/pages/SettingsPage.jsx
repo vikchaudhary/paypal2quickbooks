@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Mail, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Settings as SettingsIcon, Mail, Package, ChevronRight, ArrowLeft } from 'lucide-react';
 import { QuickBooksSettingsPage } from './QuickBooksSettingsPage';
 import { GmailSettingsPage } from './GmailSettingsPage';
+import { ProductsSettingsPage } from './ProductsSettingsPage';
 
-export function SettingsPage({ onBackToHome }) {
+export function SettingsPage({ onBackToHome, onQbConnectionCleared }) {
     const [activeSection, setActiveSection] = useState('quickbooks');
 
     const sections = [
         { id: 'quickbooks', label: 'QuickBooks', icon: SettingsIcon },
-        { id: 'gmail', label: 'Gmail', icon: Mail }
+        { id: 'gmail', label: 'Gmail', icon: Mail },
+        { id: 'products', label: 'Products', icon: Package }
     ];
 
     return (
@@ -83,8 +85,9 @@ export function SettingsPage({ onBackToHome }) {
 
             {/* Content Area */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
-                {activeSection === 'quickbooks' && <QuickBooksSettingsPage />}
+                {activeSection === 'quickbooks' && <QuickBooksSettingsPage onConnectionCleared={onQbConnectionCleared} />}
                 {activeSection === 'gmail' && <GmailSettingsPage />}
+                {activeSection === 'products' && <ProductsSettingsPage />}
             </div>
         </div>
     );

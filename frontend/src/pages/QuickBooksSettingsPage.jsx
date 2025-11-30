@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, Trash2, TestTube, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { getQBSettings, saveQBSettings, deleteQBSettings, testQBConnection, getInvoiceNumberAttempts, saveInvoiceNumberAttempts } from '../services/settingsApi';
 
-export function QuickBooksSettingsPage() {
+export function QuickBooksSettingsPage({ onConnectionCleared }) {
     const [settings, setSettings] = useState({
         client_id: '',
         client_secret: '',
@@ -121,6 +121,16 @@ export function QuickBooksSettingsPage() {
             setMessage('QuickBooks settings saved successfully');
             setMessageType('success');
             await loadSettings();
+            // After saving, test the connection and clear error if successful
+            try {
+                const testResult = await testQBConnection();
+                if (testResult.success && onConnectionCleared) {
+                    onConnectionCleared();
+                }
+            } catch (testError) {
+                // Don't show error if test fails after save - user can test manually
+                console.log('Connection test after save failed:', testError);
+            }
         } catch (error) {
             setMessage(error.message || 'Failed to save settings');
             setMessageType('error');
@@ -164,6 +174,10 @@ export function QuickBooksSettingsPage() {
             if (result.success) {
                 setMessage('Connection test successful!');
                 setMessageType('success');
+                // Clear the connection error banner in App.jsx
+                if (onConnectionCleared) {
+                    onConnectionCleared();
+                }
             } else {
                 setMessage(result.message || 'Connection test failed');
                 setMessageType('error');

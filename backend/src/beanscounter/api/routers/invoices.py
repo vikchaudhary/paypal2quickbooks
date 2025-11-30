@@ -7,6 +7,18 @@ import subprocess
 import platform
 from beanscounter.core.po_reader import POReader
 from beanscounter.services.invoice_storage_service import get_all_invoice_records
+from beanscounter.services.product_mapping_service import (
+    get_sku_for_product_string,
+    set_product_mapping,
+    get_all_mappings,
+    get_all_skus,
+    bulk_set_mappings,
+    clear_all_mappings,
+    refresh_skus_from_qb
+)
+from beanscounter.services.product_matching_service import match_products_to_skus
+from beanscounter.services.settings_service import get_qb_credentials
+from beanscounter.integrations.quickbooks_client import QuickBooksClient
 
 # Assuming POs are stored in a 'data/pos' directory relative to backend root
 # Adjust this path as needed based on where the user keeps their POs
@@ -508,3 +520,456 @@ def suggest_company_from_email(request: Dict[str, Any]):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to suggest company name: {str(e)}")
+
+
+@router.get("/products/qb-items")
+def get_qb_items() -> Dict[str, Any]:
+    """
+    Get all QuickBooks items with their SKUs.
+    
+    Returns:
+        {
+            "items": [
+                {
+                    "Id": str,
+                    "Name": str,
+                    "Sku": str or None,
+                    "Type": str
+                }
+            ]
+        }
+    """
+    try:
+        credentials = get_qb_credentials()
+        if not credentials:
+            raise HTTPException(status_code=400, detail="QuickBooks credentials not configured")
+        
+        qb_client = QuickBooksClient(
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
+            refresh_token=credentials["refresh_token"],
+            realm_id=credentials["realm_id"],
+            environment=credentials["environment"]
+        )
+        
+        items = qb_client.get_all_items()
+        return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch QuickBooks items: {str(e)}")
+
+
+@router.post("/products/match")
+def match_products(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Match ProductStrings to QuickBooks SKUs.
+    
+    Request body:
+        {
+            "product_strings": ["Product String 1", "Product String 2", ...],
+            "threshold": 0.6  # Optional, default 0.6
+        }
+        
+    Returns:
+        {
+            "matches": {
+                "Product String 1": {
+                    "sku": str or None,
+                    "similarity": float,
+                    "matched": bool,
+                    "item": dict or None
+                },
+                ...
+            }
+        }
+    """
+    try:
+        product_strings = request.get("product_strings", [])
+        threshold = request.get("threshold", 0.5)
+        
+        if not product_strings:
+            return {"matches": {}}
+        
+        # Get QuickBooks items
+        credentials = get_qb_credentials()
+        if not credentials:
+            raise HTTPException(status_code=400, detail="QuickBooks credentials not configured")
+        
+        qb_client = QuickBooksClient(
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
+            refresh_token=credentials["refresh_token"],
+            realm_id=credentials["realm_id"],
+            environment=credentials["environment"]
+        )
+        
+        items = qb_client.get_all_items()
+        
+        # Match products
+        matches = match_products_to_skus(product_strings, items, threshold)
+        
+        return {"matches": matches}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to match products: {str(e)}")
+
+
+@router.get("/products/mappings")
+def get_product_mappings() -> Dict[str, Any]:
+    """
+    Get all ProductString -> SKU mappings.
+    
+    Returns:
+        {
+            "mappings": {
+                "ProductString": "SKU",
+                ...
+            },
+            "skus": {
+                "SKU": {
+                    "name": str or None,
+                    "id": str or None,
+                    "product_strings": [str, ...]
+                },
+                ...
+            }
+        }
+    """
+    try:
+        mappings = get_all_mappings()
+        skus = get_all_skus()
+        
+        # Debug: Log mappings to help diagnose issues
+        print(f"DEBUG: Returning {len(mappings)} product mappings")
+        if mappings:
+            sample_keys = list(mappings.keys())[:5]
+            print(f"DEBUG: Sample mapping keys: {sample_keys}")
+        
+        return {
+            "mappings": mappings,
+            "skus": skus
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get product mappings: {str(e)}")
+
+
+@router.post("/products/mappings")
+def set_product_mappings(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Set ProductString -> SKU mappings.
+    
+    Request body:
+        {
+            "mappings": {
+                "ProductString": "SKU",
+                ...
+            },
+            "sku_metadata": {  # Optional
+                "SKU": {
+                    "name": str,
+                    "id": str
+                },
+                ...
+            }
+        }
+        
+    Returns:
+        {"status": "success"}
+    """
+    try:
+        mappings = request.get("mappings", {})
+        sku_metadata = request.get("sku_metadata")
+        
+        # Allow empty mappings if sku_metadata is provided (for metadata-only updates)
+        if not mappings and not sku_metadata:
+            raise HTTPException(status_code=400, detail="Either mappings or sku_metadata must be provided")
+        
+        bulk_set_mappings(mappings, sku_metadata)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set product mappings: {str(e)}")
+
+
+@router.get("/products/mappings/{product_string}")
+def get_product_mapping(product_string: str) -> Dict[str, Any]:
+    """
+    Get the SKU mapped to a ProductString.
+    
+    Returns:
+        {
+            "product_string": str,
+            "sku": str or None
+        }
+    """
+    try:
+        sku = get_sku_for_product_string(product_string)
+        return {
+            "product_string": product_string,
+            "sku": sku
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get product mapping: {str(e)}")
+
+
+@router.get("/products/skus")
+def get_all_skus_with_mappings() -> Dict[str, Any]:
+    """
+    Get all SKUs from QuickBooks with their associated ProductStrings.
+    This is a 1:many mapping (one SKU maps to many ProductStrings).
+    
+    Returns:
+        {
+            "skus": [
+                {
+                    "sku": str,
+                    "name": str,
+                    "id": str,
+                    "description": str or None,
+                    "product_strings": [str, ...]
+                },
+                ...
+            ]
+        }
+    """
+    try:
+        # Get all mappings
+        mappings = get_all_mappings()
+        skus_data = get_all_skus()
+        
+        # Get all QuickBooks items to get full details
+        credentials = get_qb_credentials()
+        qb_items = []
+        if credentials:
+            try:
+                qb_client = QuickBooksClient(
+                    client_id=credentials["client_id"],
+                    client_secret=credentials["client_secret"],
+                    refresh_token=credentials["refresh_token"],
+                    realm_id=credentials["realm_id"],
+                    environment=credentials["environment"]
+                )
+                qb_items = qb_client.get_all_items()
+            except Exception as e:
+                print(f"Failed to fetch QB items: {e}")
+        
+        # Build items_by_identifier lookup (using SKU or Name as identifier)
+        # QuickBooks API may return SKU field with different casing
+        items_by_identifier = {}
+        for item in qb_items:
+            # Use SKU as identifier, or fall back to Name if no SKU
+            sku = item.get("Sku") or item.get("SKU") or item.get("sku")
+            if not sku:
+                sku = item.get("Name")
+            if sku:
+                items_by_identifier[sku] = item
+        
+        # Build reverse mapping: identifier -> ProductStrings
+        identifier_to_product_strings = {}
+        for product_string, identifier in mappings.items():
+            if identifier not in identifier_to_product_strings:
+                identifier_to_product_strings[identifier] = []
+            identifier_to_product_strings[identifier].append(product_string)
+        
+        # Build result list - ALWAYS show ALL items from QuickBooks
+        result_skus = []
+        processed_identifiers = set()
+        
+        # First, add ALL items from QuickBooks (using SKU or Name as identifier)
+        for item in qb_items:
+            # Use SKU as identifier, or fall back to Name if no SKU
+            identifier = item.get("Sku") or item.get("SKU") or item.get("sku")
+            if not identifier:
+                identifier = item.get("Name")
+            
+            if identifier:
+                # Get ProductStrings for this identifier from mappings
+                product_strings = identifier_to_product_strings.get(identifier, [])
+                
+                result_skus.append({
+                    "sku": identifier,  # This is the identifier (SKU or Name)
+                    "name": item.get("Name") or identifier,
+                    "id": item.get("Id"),
+                    "description": item.get("Description"),
+                    "type": item.get("Type"),
+                    "product_strings": sorted(product_strings)
+                })
+                processed_identifiers.add(identifier)
+        
+        # Then add any identifiers that have mappings but aren't in QuickBooks anymore
+        # (edge case: mapped identifier was deleted from QB)
+        for identifier, product_strings in identifier_to_product_strings.items():
+            if identifier not in processed_identifiers:
+                sku_info = skus_data.get(identifier, {})
+                result_skus.append({
+                    "sku": identifier,
+                    "name": sku_info.get("name") or identifier,
+                    "id": sku_info.get("id"),
+                    "description": sku_info.get("description"),
+                    "type": sku_info.get("type"),
+                    "product_strings": sorted(product_strings)
+                })
+        
+        # Sort by Product Name (or SKU if no name)
+        result_skus.sort(key=lambda x: (x["name"] or x["sku"]).lower())
+        
+        return {"skus": result_skus}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get SKUs with mappings: {str(e)}")
+
+
+@router.post("/products/skus/{sku}/product-strings")
+def add_product_string_to_sku(sku: str, request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add a ProductString mapping to a SKU.
+    
+    Request body:
+        {
+            "product_string": str
+        }
+        
+    Returns:
+        {"status": "success"}
+    """
+    try:
+        product_string = request.get("product_string")
+        if not product_string:
+            raise HTTPException(status_code=400, detail="product_string is required")
+        
+        # Get QB item to get name and id
+        credentials = get_qb_credentials()
+        sku_name = None
+        sku_id = None
+        
+        if credentials:
+            try:
+                qb_client = QuickBooksClient(
+                    client_id=credentials["client_id"],
+                    client_secret=credentials["client_secret"],
+                    refresh_token=credentials["refresh_token"],
+                    realm_id=credentials["realm_id"],
+                    environment=credentials["environment"]
+                )
+                items = qb_client.get_all_items()
+                for item in items:
+                    if item.get("Sku") == sku:
+                        sku_name = item.get("Name")
+                        sku_id = item.get("Id")
+                        break
+            except Exception as e:
+                print(f"Failed to fetch QB item: {e}")
+        
+        set_product_mapping(product_string, sku, sku_name, sku_id)
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add product string mapping: {str(e)}")
+
+
+@router.delete("/products/skus/{sku}/product-strings/{product_string}")
+def remove_product_string_from_sku(sku: str, product_string: str) -> Dict[str, Any]:
+    """
+    Remove a ProductString mapping from a SKU.
+    
+    Returns:
+        {"status": "success"}
+    """
+    try:
+        from beanscounter.services.product_mapping_service import remove_product_mapping
+        remove_product_mapping(product_string)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove product string mapping: {str(e)}")
+
+
+@router.post("/products/refresh")
+def refresh_skus() -> Dict[str, Any]:
+    """
+    Delete all current SKU mappings and reimport SKUs from QuickBooks.
+    This will:
+    1. Clear all existing mappings
+    2. Import all SKUs from QuickBooks
+    3. Preserve existing ProductString mappings if the SKU still exists in QuickBooks
+    
+    Returns:
+        {
+            "status": "success",
+            "skus_imported": int
+        }
+    """
+    try:
+        credentials = get_qb_credentials()
+        if not credentials:
+            raise HTTPException(status_code=400, detail="QuickBooks credentials not configured")
+        
+        qb_client = QuickBooksClient(
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
+            refresh_token=credentials["refresh_token"],
+            realm_id=credentials["realm_id"],
+            environment=credentials["environment"]
+        )
+        
+        # Get all items from QuickBooks
+        qb_items = qb_client.get_all_items()
+        
+        # Debug: Log what we're getting from QuickBooks
+        print(f"DEBUG: Total items fetched from QuickBooks: {len(qb_items)}")
+        if qb_items:
+            print(f"DEBUG: Sample item keys: {list(qb_items[0].keys())}")
+            print(f"DEBUG: Sample item (first 3): {qb_items[:3]}")
+            # Check for SKU in various possible formats across all items
+            items_with_sku = [item for item in qb_items if item.get("Sku") or item.get("SKU") or item.get("sku")]
+            print(f"DEBUG: Items with SKU: {len(items_with_sku)}")
+            if items_with_sku:
+                sample_item = items_with_sku[0]
+                print(f"DEBUG: Sample item with SKU: {sample_item}")
+                print(f"DEBUG: SKU field value: {sample_item.get('Sku') or sample_item.get('SKU') or sample_item.get('sku')}")
+            else:
+                print(f"DEBUG: No items found with SKU field. Checking first item structure:")
+                print(f"DEBUG: First item: {qb_items[0]}")
+                # Check all possible SKU field variations
+                for key in qb_items[0].keys():
+                    if 'sku' in key.lower():
+                        print(f"DEBUG: Found potential SKU field: '{key}' = {qb_items[0][key]}")
+        
+        # Refresh SKUs from QuickBooks
+        refresh_skus_from_qb(qb_items)
+        
+        # Count items imported (using SKU or Name as identifier)
+        items_imported = len([
+            item for item in qb_items 
+            if (item.get("Sku") or item.get("SKU") or item.get("sku")) or item.get("Name")
+        ])
+        
+        print(f"DEBUG: Items imported count: {items_imported}")
+        
+        return {
+            "status": "success",
+            "skus_imported": items_imported,
+            "total_items": len(qb_items)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh SKUs: {str(e)}")
+
+
+@router.delete("/products/clear")
+def clear_all_product_mappings() -> Dict[str, Any]:
+    """
+    Clear all product mappings and SKU data.
+    This will delete all mappings and SKU information.
+    
+    Returns:
+        {"status": "success"}
+    """
+    try:
+        clear_all_mappings()
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear mappings: {str(e)}")

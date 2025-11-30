@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Save, Settings, CheckCircle, AlertCircle, X, ExternalLink, Tag } from 'lucide-react';
 import { LineItemsTable } from './LineItemsTable';
 import { getQBSettings } from '../services/settingsApi';
 import { searchQBCustomers, getNextInvoiceNumber } from '../services/qbCustomerApi';
 import { saveInvoiceToQB, getInvoiceRecord } from '../services/invoiceApi';
+import { matchProducts, getProductMappings, setProductMappings } from '../services/productApi';
 
 export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
+    const poFilenameFromPO = po && po.filename ? po.filename : null;
+    
     const [qbSettings, setQbSettings] = useState(null);
     const [qbConfigured, setQbConfigured] = useState(false);
     const [loadingSettings, setLoadingSettings] = useState(true);
@@ -23,8 +26,12 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
     const [loadingInvoiceNumber, setLoadingInvoiceNumber] = useState(false);
     const [savedInvoiceRecord, setSavedInvoiceRecord] = useState(null);
     const [loadingInvoiceRecord, setLoadingInvoiceRecord] = useState(false);
+    const [productMatches, setProductMatches] = useState({});
+    const [matchingProducts, setMatchingProducts] = useState(false);
+    const [skuData, setSkuData] = useState({}); // Store SKU name and description by SKU identifier
     const searchTimeoutRef = useRef(null);
     const dropdownRef = useRef(null);
+    const loggedMatchesRef = useRef(new Set()); // Track which matches we've already logged
 
     // Load QuickBooks settings
     useEffect(() => {
@@ -47,6 +54,33 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
             autoSearchCustomer(po.vendor_name);
         }
     }, [po, qbConfigured, savedInvoiceRecord]);
+
+    // Match products when PO is loaded
+    useEffect(() => {
+        if (po && po.line_items && po.line_items.length > 0 && qbConfigured) {
+            matchPOProducts();
+        }
+    }, [po, qbConfigured]);
+    
+    // Load SKU data when productMatches change (to ensure it's available for invoiceData)
+    useEffect(() => {
+        const loadSkuData = async () => {
+            if (Object.keys(productMatches).length > 0) {
+                try {
+                    const mappingsData = await getProductMappings();
+                    const skus = mappingsData.skus || {};
+                    console.log('[SKU DEBUG] Loaded SKU data in useEffect:', { 
+                        skuCount: Object.keys(skus).length, 
+                        sampleSkus: Object.keys(skus).slice(0, 5)
+                    });
+                    setSkuData(skus);
+                } catch (error) {
+                    // Error loading SKU data
+                }
+            }
+        };
+        loadSkuData();
+    }, [productMatches]);
 
     // Load next invoice number when customer is selected (only if no saved invoice exists)
     useEffect(() => {
@@ -71,9 +105,9 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
             setLoadingSettings(true);
             const settings = await getQBSettings();
             setQbSettings(settings);
-            setQbConfigured(settings.configured || false);
+            const configured = settings.configured || false;
+            setQbConfigured(configured);
         } catch (error) {
-            console.error('Failed to load QB settings:', error);
             setQbConfigured(false);
         } finally {
             setLoadingSettings(false);
@@ -92,7 +126,6 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
             setSearchingCustomers(true);
             setSaveError(null);
             const customers = await searchQBCustomers(customerName);
-            console.log('Auto-search results:', customers);
             if (customers.length > 0) {
                 // Try to find exact match first
                 const exactMatch = customers.find(c => 
@@ -111,7 +144,6 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
                 setCustomerSearchTerm(customerName);
             }
         } catch (error) {
-            console.error('Failed to search customers:', error);
             setSaveError(`Failed to search customers: ${error.message}`);
         } finally {
             setSearchingCustomers(false);
@@ -137,14 +169,11 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
             try {
                 setSearchingCustomers(true);
                 setSaveError(null); // Clear previous errors
-                console.log('Searching for customers with term:', searchTerm);
                 const customers = await searchQBCustomers(searchTerm);
-                console.log('Search results:', customers);
                 setCustomerSearchResults(customers);
                 // Show dropdown if we have results OR if search term is long enough (to show "no results")
                 setShowCustomerDropdown(searchTerm.length >= 2);
             } catch (error) {
-                console.error('Failed to search customers:', error);
                 setCustomerSearchResults([]);
                 setShowCustomerDropdown(false);
                 setSaveError(`Failed to search customers: ${error.message}`);
@@ -187,7 +216,6 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
                 setInvoiceNumber(result.invoice_number);
             }
         } catch (error) {
-            console.error('Failed to load next invoice number:', error);
             // Fallback to default format if API fails
             setInvoiceNumber(`INV-${po?.po_number || '001'}`);
         } finally {
@@ -214,9 +242,131 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
                 setIsEditable(false); // Invoice already created, make form read-only
             }
         } catch (error) {
-            console.error('Failed to load invoice record:', error);
+            // Error loading invoice record
         } finally {
             setLoadingInvoiceRecord(false);
+        }
+    };
+
+    const matchPOProducts = async () => {
+        if (!po || !po.line_items || po.line_items.length === 0 || !qbConfigured) {
+            return;
+        }
+
+        try {
+            setMatchingProducts(true);
+            
+            // Get existing mappings first
+            const mappingsData = await getProductMappings();
+            const existingMappings = mappingsData.mappings || {};
+            
+            // Extract product strings from PO line items
+            const productStrings = po.line_items
+                .map(item => item.product_name)
+                .filter(name => name && name.trim());
+            
+            if (productStrings.length === 0) {
+                return;
+            }
+
+            // Match ALL products using the matching service
+            // The matching service will:
+            // 1. First check Products database for existing mappings
+            // 2. Verify the SKU exists in QuickBooks (by matching SKU's Name)
+            // 3. Fall back to fuzzy matching if no database mapping exists
+            const matchResult = await matchProducts(productStrings, 0.5);
+            const matches = matchResult.matches || {};
+            
+            // Save new mappings (only for newly matched products, not database mappings)
+            // But always update SKU metadata (including description) for all matched items
+            const newMappings = {};
+            const skuMetadata = {};
+            for (const [productString, matchInfo] of Object.entries(matches)) {
+                if (matchInfo.matched && matchInfo.sku) {
+                    // Check if this was a database mapping (similarity = 1.0) or fuzzy match
+                    const isDatabaseMapping = matchInfo.similarity === 1.0;
+                    
+                    // Only save mapping if it's a new fuzzy match (not from database)
+                    if (!isDatabaseMapping) {
+                        newMappings[productString] = matchInfo.sku;
+                    }
+                    
+                    // Always update SKU metadata if we have item data (for both database and fuzzy matches)
+                    // This ensures description is always up-to-date
+                    if (matchInfo.item && matchInfo.item.Name && matchInfo.item.Id) {
+                        skuMetadata[matchInfo.sku] = {
+                            name: matchInfo.item.Name,
+                            id: matchInfo.item.Id,
+                            description: matchInfo.item.Description || null
+                        };
+                    }
+                }
+            }
+            
+            // Save new mappings and/or update SKU metadata
+            if (Object.keys(newMappings).length > 0 || Object.keys(skuMetadata).length > 0) {
+                await setProductMappings(newMappings, skuMetadata);
+            }
+            
+            // Build complete match info for all products
+            // Store both original and normalized keys to handle whitespace differences
+            const allMatches = {};
+            for (const productString of productStrings) {
+                const normalizedPS = productString.trim();
+                
+                // Check match results (from matching service)
+                const matchInfo = matches[productString] || matches[normalizedPS];
+                
+                if (matchInfo && matchInfo.matched) {
+                    // Product was matched (either from database or fuzzy matching)
+                    const isDatabaseMapping = matchInfo.similarity === 1.0;
+                    allMatches[productString] = {
+                        sku: matchInfo.sku,
+                        matched: true,
+                        similarity: matchInfo.similarity,
+                        fromMapping: isDatabaseMapping
+                    };
+                    // Also store with normalized key for lookup
+                    if (productString !== normalizedPS) {
+                        allMatches[normalizedPS] = allMatches[productString];
+                    }
+                } else {
+                    // No match found
+                    allMatches[productString] = {
+                        sku: null,
+                        matched: false,
+                        fromMapping: false
+                    };
+                }
+            }
+            
+            setProductMatches(allMatches);
+            
+            // Fetch SKU data for matched items (reuse mappingsData from earlier)
+            const skus = mappingsData.skus || {};
+            console.log('[SKU DEBUG] Setting skuData:', { 
+                skuCount: Object.keys(skus).length, 
+                sampleSkus: Object.keys(skus).slice(0, 5),
+                sampleSkuData: Object.keys(skus).length > 0 ? skus[Object.keys(skus)[0]] : null
+            });
+            setSkuData(skus);
+        } catch (error) {
+            // Set empty matches on error
+            const emptyMatches = {};
+            if (po && po.line_items) {
+                po.line_items.forEach(item => {
+                    if (item.product_name) {
+                        emptyMatches[item.product_name] = {
+                            sku: null,
+                            matched: false,
+                            fromMapping: false
+                        };
+                    }
+                });
+            }
+            setProductMatches(emptyMatches);
+        } finally {
+            setMatchingProducts(false);
         }
     };
     
@@ -384,20 +534,120 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
     };
 
     // Convert PO data to invoice format for display
-    const invoiceData = po ? {
-        invoiceNumber: invoiceNumber || `INV-${po.po_number || '001'}`,
-        referencePO: po.po_number || '',
-        invoiceDate: convertDateToISO(po.date) || new Date().toISOString().split('T')[0],
-        dueDate: convertDateToISO(po.delivery_date) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        lineItems: (po.line_items || []).map((item, index) => ({
-            id: index + 1,
-            product: item.product_name || '',
-            description: item.description || item.product_name || '',
-            qty: parseFloat(item.quantity || 0),
-            rate: parseFloat(item.unit_price?.replace(/[^0-9.-]+/g, '') || 0),
-            amount: parseFloat(item.amount?.replace(/[^0-9.-]+/g, '') || 0)
-        }))
-    } : null;
+    // Use useMemo to recompute when po, productMatches, or skuData changes
+    const invoiceData = useMemo(() => {
+        if (!po) return null;
+        
+        // Reset logged matches when PO changes (using poFilename as key)
+        const currentPOKey = poFilename || (po && po.po_number) || 'unknown';
+        if (!loggedMatchesRef.current.poKey || loggedMatchesRef.current.poKey !== currentPOKey) {
+            loggedMatchesRef.current = new Set();
+            loggedMatchesRef.current.poKey = currentPOKey;
+        }
+        
+        return {
+            invoiceNumber: invoiceNumber || `INV-${po.po_number || '001'}`,
+            referencePO: po.po_number || '',
+            invoiceDate: convertDateToISO(po.date) || new Date().toISOString().split('T')[0],
+            dueDate: convertDateToISO(po.delivery_date) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            lineItems: (po.line_items || []).map((item, index) => {
+                const productName = item.product_name || '';
+                // Try exact match first, then normalized match
+                let matchInfo = productMatches[productName];
+                if (!matchInfo) {
+                    // Try with trimmed version
+                    const trimmedName = productName.trim();
+                    matchInfo = productMatches[trimmedName];
+                }
+                // Fallback to empty match info
+                if (!matchInfo) {
+                    matchInfo = { matched: false, sku: null };
+                }
+                
+                // If matched, get SKU name and description from Products database
+                let displayProduct = productName;
+                let displayDescription = item.description;
+                
+                if (matchInfo.matched && matchInfo.sku) {
+                    // Create a unique key for this match to avoid duplicate logs
+                    const matchKey = `${productName}::${matchInfo.sku}`;
+                    const shouldLog = Object.keys(skuData).length > 0 && !loggedMatchesRef.current.has(matchKey);
+                    
+                    // Try to find SKU in skuData with multiple lookup strategies
+                    let skuInfo = null;
+                    let lookupMethod = null;
+                    
+                    // Strategy 1: Direct lookup
+                    if (skuData[matchInfo.sku]) {
+                        skuInfo = skuData[matchInfo.sku];
+                        lookupMethod = 'direct';
+                    } else {
+                        // Strategy 2: Case-insensitive lookup
+                        const skuLower = matchInfo.sku.toLowerCase();
+                        const foundKey = Object.keys(skuData).find(key => key.toLowerCase() === skuLower);
+                        if (foundKey) {
+                            skuInfo = skuData[foundKey];
+                            lookupMethod = 'case-insensitive';
+                        } else {
+                            // Strategy 3: Match by SKU name
+                            const foundByName = Object.values(skuData).find(sku => 
+                                sku.name && sku.name.toLowerCase() === skuLower
+                            );
+                            if (foundByName) {
+                                skuInfo = foundByName;
+                                lookupMethod = 'by-name';
+                            }
+                        }
+                    }
+                    
+                    if (skuInfo) {
+                        // Use SKU's name and description from Products database
+                        displayProduct = skuInfo.name || productName;
+                        // Description should always be available if SKU is in database
+                        // If description is null/undefined, it means it wasn't saved properly
+                        displayDescription = skuInfo.description || skuInfo.name || productName;
+                        
+                        // Log match information (only once per match)
+                        if (shouldLog) {
+                            loggedMatchesRef.current.add(matchKey);
+                            
+                            // Debug: Log the full skuInfo to see what's actually there
+                            console.log('[SKU DEBUG] Match found:', {
+                                productName: productName,
+                                matchedSKU: skuInfo.name || matchInfo.sku,
+                                skuDescription: skuInfo.description || '(no description)',
+                                lookupMethod: lookupMethod,
+                                skuInfoKeys: Object.keys(skuInfo),
+                                fullSkuInfo: skuInfo
+                            });
+                        }
+                    } else {
+                        if (shouldLog) {
+                            loggedMatchesRef.current.add(matchKey);
+                            console.log(`[SKU DEBUG] No match found for SKU "${matchInfo.sku}" in skuData`, {
+                                availableSkuKeys: Object.keys(skuData).slice(0, 10),
+                                matchInfoSku: matchInfo.sku
+                            });
+                        }
+                    }
+                }
+                
+                return {
+                    id: index + 1,
+                    product: displayProduct,
+                    description: displayDescription,
+                    qty: parseFloat(item.quantity || 0),
+                    rate: parseFloat((item.unit_price && item.unit_price.replace(/[^0-9.-]+/g, '')) || 0),
+                    amount: parseFloat((item.amount && item.amount.replace(/[^0-9.-]+/g, '')) || 0),
+                    // Add match information
+                    matched: matchInfo.matched,
+                    sku: matchInfo.sku,
+                    matchSimilarity: matchInfo.similarity,
+                    fromMapping: matchInfo.fromMapping
+                };
+            })
+        };
+    }, [po, productMatches, skuData, invoiceNumber, poFilename]);
 
     if (!po || !po.vendor_name) {
         return (
@@ -916,9 +1166,44 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
                 border: '1px solid #e5e7eb',
                 opacity: isEditable ? 1 : 0.6
             }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '20px' }}>
-                    Line Items
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', margin: 0 }}>
+                        Products
+                    </h3>
+                    <div style={{ 
+                        fontSize: '12px', 
+                        color: '#6b7280',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}>
+                        <span>QuickBooks products are read-only</span>
+                    </div>
+                </div>
+                {matchingProducts && (
+                    <div style={{ 
+                        marginBottom: '16px', 
+                        padding: '12px', 
+                        backgroundColor: '#fef3c7', 
+                        borderRadius: '6px',
+                        border: '1px solid #fde68a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <div style={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            border: '2px solid #fde68a',
+                            borderTop: '2px solid #92400e',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }}></div>
+                        <span style={{ fontSize: '13px', color: '#92400e' }}>
+                            Matching products to QuickBooks SKUs...
+                        </span>
+                    </div>
+                )}
                 <LineItemsTable
                     lineItems={invoiceData?.lineItems || []}
                     editable={isEditable}

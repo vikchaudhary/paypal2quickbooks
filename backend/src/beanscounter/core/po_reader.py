@@ -443,13 +443,14 @@ class POReader:
                     rate_idx = -1
                     
                     for i, col in enumerate(header):
-                        if any(k in col for k in ["qty", "quantity", "units", "count"]):
+                        col_lower = str(col).lower()
+                        if any(k in col_lower for k in ["qty", "quantity", "units", "count", "qty.", "qty:"]):
                             qty_idx = i
-                        elif any(k in col for k in ["description", "item", "product", "material", "sku", "details"]):
+                        elif any(k in col_lower for k in ["description", "item", "product", "material", "sku", "details", "item name", "product name"]):
                             desc_idx = i
-                        elif any(k in col for k in ["amount", "total", "ext price", "extended"]):
+                        elif any(k in col_lower for k in ["amount", "total", "ext price", "extended", "extended cost", "ext. cost"]):
                             price_idx = i
-                        elif any(k in col for k in ["rate", "price", "unit", "cost"]):
+                        elif any(k in col_lower for k in ["rate", "price", "unit", "cost", "unit price", "unit cost"]):
                             rate_idx = i
                     
                     if desc_idx != -1:
@@ -464,9 +465,14 @@ class POReader:
                             qty = 0.0
                             if qty_idx != -1 and qty_idx < len(row) and row[qty_idx]:
                                 try:
-                                    qty_str = str(row[qty_idx]).lower().replace('ea', '').strip()
-                                    qty = float(qty_str)
-                                except ValueError:
+                                    qty_str = str(row[qty_idx]).strip()
+                                    # Remove common unit suffixes: EACH, EA, UNIT, UNITS, etc.
+                                    qty_str = re.sub(r'\s*(each|ea|unit|units|pcs|pieces?)\s*$', '', qty_str, flags=re.IGNORECASE)
+                                    # Remove any remaining non-numeric characters except decimal point
+                                    qty_str = re.sub(r'[^\d.]', '', qty_str)
+                                    if qty_str:
+                                        qty = float(qty_str)
+                                except (ValueError, AttributeError):
                                     pass
                             
                             # Debug individual row parsing if needed
@@ -490,6 +496,16 @@ class POReader:
                             # If price wasn't found but qty and rate were, calculate it
                             if price == 0.0 and qty > 0 and rate > 0:
                                 price = qty * rate
+                            
+                            # If qty is 0 but we have rate and price, calculate qty
+                            if qty == 0.0 and rate > 0 and price > 0:
+                                try:
+                                    calculated_qty = price / rate
+                                    # Only use calculated qty if it's a reasonable whole number (within 0.01 tolerance)
+                                    if abs(calculated_qty - round(calculated_qty)) < 0.01:
+                                        qty = round(calculated_qty)
+                                except (ZeroDivisionError, ValueError):
+                                    pass
                             
                             # Only add if we have a description and at least one numeric value
                             if desc and (qty > 0 or rate > 0 or price > 0):

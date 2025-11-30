@@ -1,7 +1,7 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, CheckCircle, XCircle } from 'lucide-react';
 
-export function LineItemsTable({ lineItems, editable = false, onItemChange, onDeleteItem }) {
+export function LineItemsTable({ lineItems, editable = false, onItemChange, onDeleteItem, showMatchColumn = true }) {
     // Ensure lineItems is always an array
     const safeLineItems = lineItems || [];
 
@@ -67,6 +67,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                             Rate
                         </th>
                         <th style={{ ...thStyle, textAlign: 'right', width: editable ? '100px' : 'auto' }}>Amount</th>
+                        {showMatchColumn && <th style={{ ...thStyle, textAlign: 'center', width: '100px' }}>Match</th>}
                         {editable && <th style={{ width: '40px' }}></th>}
                     </tr>
                 </thead>
@@ -78,6 +79,9 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                         const quantity = item.quantity || item.qty || 0;
                         const unitPrice = item.unit_price || item.rate || 0;
                         const amount = item.amount || 0;
+                        const matched = item.matched || false;
+                        const sku = item.sku || null;
+                        const matchSimilarity = item.matchSimilarity;
 
                         return (
                             <tr
@@ -88,16 +92,18 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                 }}
                             >
                                 <td style={{ ...tdStyle, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '300px' }}>
-                                    {editable ? (
-                                        <input
-                                            type="text"
-                                            value={productName}
-                                            onChange={(e) => onItemChange(itemId, 'product', e.target.value)}
-                                            style={inputStyle}
-                                        />
-                                    ) : (
-                                        productName
-                                    )}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {editable ? (
+                                            <input
+                                                type="text"
+                                                value={productName}
+                                                onChange={(e) => onItemChange(itemId, 'product', e.target.value)}
+                                                style={inputStyle}
+                                            />
+                                        ) : (
+                                            <span>{productName}</span>
+                                        )}
+                                    </div>
                                 </td>
                                 <td style={{ ...tdStyle, whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: '300px' }}>
                                     {editable ? (
@@ -144,6 +150,59 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                                         formatCurrency(amount)
                                     )}
                                 </td>
+                                {showMatchColumn && (
+                                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                                        {matched ? (
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                flexDirection: 'column', 
+                                                alignItems: 'center', 
+                                                gap: '4px' 
+                                            }}>
+                                                <CheckCircle size={18} color="#10b981" />
+                                                {sku && (
+                                                    <span style={{ 
+                                                        fontSize: '11px', 
+                                                        color: '#6b7280',
+                                                        fontWeight: 500
+                                                    }}>
+                                                        {sku}
+                                                    </span>
+                                                )}
+                                                {matchSimilarity !== undefined && matchSimilarity < 1.0 && (
+                                                    <span style={{ 
+                                                        fontSize: '10px', 
+                                                        color: '#9ca3af'
+                                                    }}>
+                                                        {(matchSimilarity * 100).toFixed(0)}% match
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                flexDirection: 'column', 
+                                                alignItems: 'center', 
+                                                gap: '4px' 
+                                            }}>
+                                                <XCircle size={18} color="#ef4444" />
+                                                <span style={{ 
+                                                    fontSize: '11px', 
+                                                    color: '#9ca3af'
+                                                }}>
+                                                    No match
+                                                </span>
+                                                <span style={{ 
+                                                    fontSize: '10px', 
+                                                    color: '#d1d5db',
+                                                    fontStyle: 'italic'
+                                                }}>
+                                                    (text only)
+                                                </span>
+                                            </div>
+                                        )}
+                                    </td>
+                                )}
                                 {editable && (
                                     <td style={{ padding: '8px', textAlign: 'center' }}>
                                         <button
@@ -161,7 +220,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                 <tfoot>
                     <tr>
                         <td
-                            colSpan={editable ? "4" : "4"}
+                            colSpan={showMatchColumn ? "5" : "4"}
                             style={{
                                 ...tdStyle,
                                 textAlign: 'right',
@@ -186,6 +245,7 @@ export function LineItemsTable({ lineItems, editable = false, onItemChange, onDe
                         >
                             {formatCurrency(totalAmount)}
                         </td>
+                        {showMatchColumn && <td></td>}
                         {editable && <td></td>}
                     </tr>
                 </tfoot>

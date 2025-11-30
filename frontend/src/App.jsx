@@ -302,7 +302,10 @@ function App() {
 
             {/* Main Content */}
             {currentView === 'settings' ? (
-                <SettingsPage onBackToHome={() => setCurrentView('pos')} />
+                <SettingsPage 
+                    onBackToHome={() => setCurrentView('pos')}
+                    onQbConnectionCleared={() => setQbConnectionError(null)}
+                />
             ) : (
                 <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                     <POList

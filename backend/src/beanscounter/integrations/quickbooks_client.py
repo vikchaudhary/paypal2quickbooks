@@ -265,6 +265,51 @@ class QuickBooksClient:
         items = res.get("QueryResponse", {}).get("Item", [])
         return items[0] if items else None
     
+    def get_all_items(self) -> List[Dict]:
+        """
+        Get all items from QuickBooks with their SKUs.
+        
+        Returns:
+            List of item dictionaries, each containing:
+            - Id: Item ID
+            - Name: Item name
+            - Sku: Item SKU (if available)
+            - Type: Item type
+            - Description: Item description (if available)
+        """
+        items = []
+        max_results = 1000  # QuickBooks max per query
+        start_position = 1
+        
+        while True:
+            # Query with pagination - include Description for product details
+            q = f"select Id, Name, Sku, Type, Description from Item startposition {start_position} maxresults {max_results}"
+            try:
+                res = self.query(q)
+                query_response = res.get("QueryResponse", {})
+                batch = query_response.get("Item", [])
+                
+                # Handle single item vs list
+                if isinstance(batch, dict):
+                    batch = [batch]
+                
+                if not batch:
+                    break
+                
+                items.extend(batch)
+                
+                # Check if there are more results
+                max_results_returned = query_response.get("maxResults", len(batch))
+                if len(batch) < max_results_returned:
+                    break
+                
+                start_position += len(batch)
+            except Exception as e:
+                print(f"Error fetching items: {e}")
+                break
+        
+        return items
+    
     def find_income_account_ref(self) -> Dict:
         """
         Find an income account to use for items.
