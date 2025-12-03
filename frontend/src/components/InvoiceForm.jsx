@@ -400,22 +400,42 @@ export function InvoiceForm({ po, poFilename, onInvoiceSaved }) {
             setSaveError(null);
 
             // Convert PO data to backend format
-            const invoiceData = {
+            // Use invoiceData.lineItems which has the matched SKU information
+            const items = (invoiceData?.lineItems || po.line_items || []).map((item, index) => {
+                // Use the matched SKU if available from invoiceData, otherwise use original product_name
+                const poItem = po.line_items?.[index];
+                const productName = item.product || item.product_name || poItem?.product_name || '';
+                const sku = item.sku || null; // Include matched SKU if available
+                
+                return {
+                    product_name: productName,
+                    sku: sku, // Send SKU to backend for direct lookup
+                    quantity: parseFloat(item.qty || item.quantity || poItem?.quantity || 0),
+                    rate: parseFloat(
+                        (item.rate && typeof item.rate === 'number' ? item.rate : 
+                         item.rate && typeof item.rate === 'string' ? item.rate.replace(/[^0-9.-]+/g, '') :
+                         item.unit_price?.replace(/[^0-9.-]+/g, '') || 
+                         poItem?.unit_price?.replace(/[^0-9.-]+/g, '') || 0)
+                    ),
+                    price: parseFloat(
+                        (item.amount && typeof item.amount === 'number' ? item.amount :
+                         item.amount && typeof item.amount === 'string' ? item.amount.replace(/[^0-9.-]+/g, '') :
+                         poItem?.amount?.replace(/[^0-9.-]+/g, '') || 0)
+                    )
+                };
+            });
+            
+            const invoiceDataToSend = {
                 customer: po.vendor_name || 'Unknown',
                 po_number: po.po_number || 'Unknown',
                 invoice_number: invoiceNumber || `INV-${po.po_number || '001'}`,
                 order_date: po.date || new Date().toISOString().split('T')[0],
                 delivery_date: po.delivery_date || null,
                 invoice_amount: parseFloat(po.total_amount?.replace(/[^0-9.-]+/g, '') || 0),
-                items: (po.line_items || []).map(item => ({
-                    product_name: item.product_name || '',
-                    quantity: parseFloat(item.quantity || 0),
-                    rate: parseFloat(item.unit_price?.replace(/[^0-9.-]+/g, '') || 0),
-                    price: parseFloat(item.amount?.replace(/[^0-9.-]+/g, '') || 0)
-                }))
+                items: items
             };
 
-            const result = await saveInvoiceToQB(selectedCustomer.id, invoiceData, poFilename);
+            const result = await saveInvoiceToQB(selectedCustomer.id, invoiceDataToSend, poFilename);
             
             if (result.status === 'created' || result.status === 'exists') {
                 setSaveSuccess(true);

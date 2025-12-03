@@ -64,13 +64,20 @@ def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBo
     """
     line_objects = []
     
-    # Get all QuickBooks items to look up by SKU (read-only)
+    # Get all QuickBooks items to look up by SKU and Name (read-only)
     all_items = qb_client.get_all_items()
     items_by_sku = {}
+    items_by_name = {}  # Also index by Name for fallback matching
     for qb_item in all_items:
-        sku = qb_item.get("Sku")
+        # QuickBooks may return SKU with different casing (Sku, SKU, sku)
+        sku = qb_item.get("Sku") or qb_item.get("SKU") or qb_item.get("sku")
         if sku:
             items_by_sku[sku] = qb_item
+        
+        # Also index by Name (case-insensitive) for fallback
+        item_name = qb_item.get("Name")
+        if item_name:
+            items_by_name[item_name.lower()] = qb_item
     
     for item in po_items:
         product_name = item.get("product_name", "")
@@ -85,29 +92,56 @@ def _map_po_items_to_qb_lines(po_items: List[Dict[str, Any]], qb_client: QuickBo
         if price == 0 and qty > 0 and rate > 0:
             price = qty * rate
         
-        # Try to find mapped SKU
-        sku = get_sku_for_product_string(product_name)
+        # Use SKU from frontend if provided (more reliable), otherwise try to find mapped SKU
+        sku = item.get("sku")  # Frontend may send SKU directly
+        if not sku:
+            sku = get_sku_for_product_string(product_name)
         
+        qb_item = None
+        
+        # First try to find by SKU (from frontend or mapping)
         if sku and sku in items_by_sku:
-            # Use the item with the matched SKU (existing item only)
             qb_item = items_by_sku[sku]
-            item_ref = {"value": qb_item["Id"], "name": qb_item.get("Name", product_name)}
+        # If no SKU match, try to find by Name (case-insensitive)
+        elif not sku:
+            # Try to match by product name directly
+            product_name_lower = product_name.lower()
+            if product_name_lower in items_by_name:
+                qb_item = items_by_name[product_name_lower]
         
+        if qb_item and qb_item.get("Id"):
+            # Found a matching QuickBooks item with valid Id
+            item_ref = {"value": qb_item["Id"], "name": qb_item.get("Name", product_name)}
+            
+            # Use SKU's description if available
+            # The Description field is optional - QuickBooks will show the Item's Name as Product/Service
+            sku_description = qb_item.get("Description")
+            
             # Build SalesItemLineDetail with item reference
-        detail = {
-            "DetailType": "SalesItemLineDetail",
-            "Amount": round(price, 2),
-            "Description": product_name,
-            "SalesItemLineDetail": {
-                "ItemRef": item_ref,
-                "Qty": qty,
-                "UnitPrice": rate,
-                "TaxCodeRef": {"value": "NON"}  # Default to non-taxable
+            # This ensures Product, Quantity, and Rate are shown in separate columns
+            detail = {
+                "DetailType": "SalesItemLineDetail",
+                "Amount": round(price, 2),
+                "SalesItemLineDetail": {
+                    "ItemRef": item_ref,
+                    "Qty": qty,
+                    "UnitPrice": rate,
+                    "TaxCodeRef": {"value": "NON"}  # Default to non-taxable
+                }
             }
-        }
+            
+            # Only include Description if it has a value (QuickBooks may not like empty strings)
+            if sku_description and sku_description.strip():
+                detail["Description"] = sku_description.strip()
         else:
             # No match found - use DescriptionOnly line (no item reference)
             # This allows the product to appear on the invoice without creating a new item
+            # Note: DescriptionOnly lines will only show in Description column
+            if sku:
+                print(f"WARNING: SKU '{sku}' found in mappings but not in QuickBooks items for product '{product_name}'")
+                print(f"  Available SKUs in QuickBooks: {list(items_by_sku.keys())[:10]}")
+            else:
+                print(f"WARNING: No SKU mapping found for product '{product_name}'")
             detail = {
                 "DetailType": "DescriptionOnly",
                 "Amount": round(price, 2),
