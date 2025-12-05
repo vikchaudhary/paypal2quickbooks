@@ -9,6 +9,15 @@ export function PODetails({ po, onExtract, isExtracting, extractedData, onInvoic
     // Use extractedData directly, no fallback
     const data = extractedData || {};
     const displayLineItems = data.line_items || [];
+    
+    // Mutate data.ship_to.name to use bill_to.name if ship_to.name is "Unknown" and bill_to.name is known
+    if (data.ship_to?.name === 'Unknown' && data.bill_to?.name && data.bill_to?.name !== 'Unknown') {
+        if (!data.ship_to) {
+            data.ship_to = {};
+        }
+        data.ship_to.name = data.bill_to.name;
+    }
+    
     const [suggesting, setSuggesting] = useState(false);
     const [suggestion, setSuggestion] = useState(null);
     const [suggestionError, setSuggestionError] = useState(null);
