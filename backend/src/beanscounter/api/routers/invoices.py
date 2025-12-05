@@ -96,6 +96,11 @@ def list_pos() -> List[Dict[str, Any]]:
             # Get invoice status if invoice exists
             invoice_records = get_all_invoice_records()
             invoice_record = invoice_records.get(f.name)
+            
+            # Skip files marked as "Not a PO"
+            if invoice_record and invoice_record.get("po_status") == "Not a PO":
+                continue
+            
             status = _determine_po_status(invoice_record)
             
             po_number = extracted.get("po_number", "")
@@ -136,6 +141,11 @@ def list_pos() -> List[Dict[str, Any]]:
             # Get invoice status if invoice exists
             invoice_records = get_all_invoice_records()
             invoice_record = invoice_records.get(f.name)
+            
+            # Skip files marked as "Not a PO"
+            if invoice_record and invoice_record.get("po_status") == "Not a PO":
+                continue
+            
             status = _determine_po_status(invoice_record)
             
             pos.append({
@@ -165,6 +175,11 @@ def list_pos() -> List[Dict[str, Any]]:
                 # Get invoice status if invoice exists
                 invoice_records = get_all_invoice_records()
                 invoice_record = invoice_records.get(f.name)
+                
+                # Skip files marked as "Not a PO"
+                if invoice_record and invoice_record.get("po_status") == "Not a PO":
+                    continue
+                
                 status = _determine_po_status(invoice_record)
                 
                 po_number = extracted.get("po_number", "")
@@ -204,6 +219,11 @@ def list_pos() -> List[Dict[str, Any]]:
                 # Get invoice status if invoice exists
                 invoice_records = get_all_invoice_records()
                 invoice_record = invoice_records.get(f.name)
+                
+                # Skip files marked as "Not a PO"
+                if invoice_record and invoice_record.get("po_status") == "Not a PO":
+                    continue
+                
                 status = _determine_po_status(invoice_record)
                 
                 pos.append({
@@ -415,7 +435,7 @@ def get_invoice_record(po_filename: str):
         Invoice record with status or null if not found
     """
     try:
-        from beanscounter.services.invoice_storage_service import get_invoice_record, update_invoice_status
+        from beanscounter.services.invoice_storage_service import get_invoice_record, update_invoice_status, mark_as_not_po
         from beanscounter.services.settings_service import get_qb_credentials
         from beanscounter.integrations.quickbooks_client import QuickBooksClient
         
@@ -451,6 +471,28 @@ def get_invoice_record(po_filename: str):
         return {"invoice_record": record} if record else {"invoice_record": None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get invoice record: {str(e)}")
+
+
+@router.post("/pos/{po_filename}/mark-not-po")
+def mark_po_as_not_po(po_filename: str):
+    """
+    Mark a PO file as "Not a PO" to hide it from the list.
+    
+    Args:
+        po_filename: PO filename (URL encoded)
+        
+    Returns:
+        Success message
+    """
+    try:
+        from beanscounter.services.invoice_storage_service import mark_as_not_po
+        # Decode the filename
+        import urllib.parse
+        decoded_filename = urllib.parse.unquote(po_filename)
+        mark_as_not_po(decoded_filename)
+        return {"message": "PO marked as 'Not a PO' and will be hidden from the list"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to mark PO as not a PO: {str(e)}")
 
 
 @router.post("/suggest-company-from-email")

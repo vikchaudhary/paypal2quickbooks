@@ -129,12 +129,30 @@ class QuickBooksClient:
             "grant_type": "refresh_token",
             "refresh_token": self.refresh_token
         }
-        r = requests.post(url, headers=headers, data=data, timeout=30)
-        if r.status_code != 200:
-            raise RuntimeError(f"Failed to refresh token: {r.status_code} {r.text}")
-        j = r.json()
-        # Note: Intuit may rotate refresh_token. If returned, persist it yourself.
-        return j["access_token"]
+        try:
+            r = requests.post(url, headers=headers, data=data, timeout=30)
+            if r.status_code != 200:
+                # Try to parse error response for better error message
+                error_detail = r.text
+                try:
+                    error_json = r.json()
+                    if "error" in error_json:
+                        error_detail = f"{error_json.get('error', 'Unknown error')}"
+                        if "error_description" in error_json:
+                            error_detail += f": {error_json['error_description']}"
+                except:
+                    pass
+                raise RuntimeError(f"Failed to refresh token (HTTP {r.status_code}): {error_detail}")
+            
+            j = r.json()
+            if "access_token" not in j:
+                raise RuntimeError(f"Invalid response from OAuth server: access_token not found in response")
+            # Note: Intuit may rotate refresh_token. If returned, persist it yourself.
+            return j["access_token"]
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Network error during token refresh: {str(e)}")
+        except ValueError as e:
+            raise RuntimeError(f"Invalid JSON response from OAuth server: {str(e)}")
     
     def request(self, method: str, path: str, params: Dict = None, json_body: Dict = None) -> Dict:
         """

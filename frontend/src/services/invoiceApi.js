@@ -44,3 +44,14 @@ export async function suggestCompanyFromEmail(email) {
     return await response.json();
 }
 
+export async function markPOAsNotPO(poFilename) {
+    const response = await fetch(`${API_BASE}/invoices/pos/${encodeURIComponent(poFilename)}/mark-not-po`, {
+        method: 'POST'
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to mark PO as not a PO');
+    }
+    return await response.json();
+}
+

@@ -30,20 +30,15 @@ class QBSettingsRequest(BaseModel):
 class QBSettingsResponse(BaseModel):
     configured: bool
     environment: Optional[str] = None
-    client_id_masked: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    refresh_token: Optional[str] = None
     realm_id: Optional[str] = None
-
-
-def _mask_secret(value: str, show_chars: int = 4) -> str:
-    """Mask a secret value, showing only last N characters."""
-    if not value or len(value) <= show_chars:
-        return "*" * len(value) if value else ""
-    return "*" * (len(value) - show_chars) + value[-show_chars:]
 
 
 @router.get("/quickbooks", response_model=QBSettingsResponse)
 def get_qb_settings():
-    """Get QuickBooks settings (with masked secrets)."""
+    """Get QuickBooks settings (returns actual values for editing)."""
     if not has_qb_credentials():
         return QBSettingsResponse(configured=False)
     
@@ -52,7 +47,9 @@ def get_qb_settings():
         return QBSettingsResponse(
             configured=True,
             environment=creds.get("environment"),
-            client_id_masked=_mask_secret(creds.get("client_id", "")),
+            client_id=creds.get("client_id"),
+            client_secret=creds.get("client_secret"),
+            refresh_token=creds.get("refresh_token"),
             realm_id=creds.get("realm_id")
         )
     except Exception as e:

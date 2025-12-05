@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Save, Trash2, TestTube, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { getQBSettings, saveQBSettings, deleteQBSettings, testQBConnection, getInvoiceNumberAttempts, saveInvoiceNumberAttempts } from '../services/settingsApi';
 
-export function QuickBooksSettingsPage({ onConnectionCleared }) {
+export const QuickBooksSettingsPage = forwardRef(function QuickBooksSettingsPage({ onConnectionCleared, onUnsavedChangesChange }, ref) {
     const [settings, setSettings] = useState({
         client_id: '',
         client_secret: '',
@@ -12,6 +12,8 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
     });
     const [maxInvoiceAttempts, setMaxInvoiceAttempts] = useState(100);
     const [currentSettings, setCurrentSettings] = useState(null);
+    const [savedSettings, setSavedSettings] = useState(null);
+    const [savedMaxAttempts, setSavedMaxAttempts] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [savingAttempts, setSavingAttempts] = useState(false);
@@ -24,6 +26,7 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
         client_secret: false,
         refresh_token: false
     });
+    const hasUnsavedChangesRef = useRef(false);
 
     useEffect(() => {
         loadSettings();
@@ -35,17 +38,17 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
             setLoading(true);
             const data = await getQBSettings();
             setCurrentSettings(data);
+            const savedData = {
+                client_id: data.client_id || '',
+                client_secret: data.client_secret || '',
+                refresh_token: data.refresh_token || '',
+                environment: data.environment || 'production',
+                realm_id: data.realm_id || ''
+            };
+            setSavedSettings(savedData);
             if (data.configured) {
-                // Don't populate fields with masked values, just show they're configured
-                // Use placeholder values to indicate settings are saved
-                setSettings(prev => ({
-                    ...prev,
-                    client_id: '••••••••••••••••',
-                    client_secret: '••••••••••••••••',
-                    refresh_token: '••••••••••••••••',
-                    environment: data.environment || 'production',
-                    realm_id: data.realm_id || ''
-                }));
+                // Populate fields with actual saved values for editing
+                setSettings(savedData);
             } else {
                 // Reset to empty if not configured
                 setSettings({
@@ -55,6 +58,11 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                     realm_id: '',
                     environment: 'production'
                 });
+            }
+            // Reset unsaved changes flag after loading
+            hasUnsavedChangesRef.current = false;
+            if (onUnsavedChangesChange) {
+                onUnsavedChangesChange(false);
             }
         } catch (error) {
             console.error('Failed to load settings:', error);
@@ -68,7 +76,9 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
     const loadInvoiceAttempts = async () => {
         try {
             const data = await getInvoiceNumberAttempts();
-            setMaxInvoiceAttempts(data.max_attempts || 100);
+            const attempts = data.max_attempts || 100;
+            setMaxInvoiceAttempts(attempts);
+            setSavedMaxAttempts(attempts);
         } catch (error) {
             console.error('Failed to load invoice attempts setting:', error);
         }
@@ -85,8 +95,10 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
             setSavingAttempts(true);
             setMessage(null);
             await saveInvoiceNumberAttempts(maxInvoiceAttempts);
+            setSavedMaxAttempts(maxInvoiceAttempts);
             setMessage('Invoice number attempts setting saved successfully');
             setMessageType('success');
+            checkUnsavedChanges();
         } catch (error) {
             setMessage(error.message || 'Failed to save invoice number attempts setting');
             setMessageType('error');
@@ -96,18 +108,6 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
     };
 
     const handleSave = async () => {
-        // Check if fields are empty or contain placeholder values
-        const hasPlaceholder = settings.client_id === '••••••••••••••••' || 
-                              settings.client_secret === '••••••••••••••••' || 
-                              settings.refresh_token === '••••••••••••••••';
-        
-        if (hasPlaceholder && currentSettings?.configured) {
-            // If all fields are placeholders, settings are already saved
-            setMessage('Settings are already saved. Click on a field to edit.');
-            setMessageType('error');
-            return;
-        }
-        
         if (!settings.client_id || !settings.client_secret || !settings.refresh_token || !settings.realm_id) {
             setMessage('Please fill in all required fields');
             setMessageType('error');
@@ -139,6 +139,81 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
         }
     };
 
+    const checkUnsavedChanges = useCallback(() => {
+        const hasSettingsChanges = savedSettings && (
+            settings.client_id !== savedSettings.client_id ||
+            settings.client_secret !== savedSettings.client_secret ||
+            settings.refresh_token !== savedSettings.refresh_token ||
+            settings.realm_id !== savedSettings.realm_id ||
+            settings.environment !== savedSettings.environment
+        );
+        
+        const hasAttemptsChanges = savedMaxAttempts !== null && maxInvoiceAttempts !== savedMaxAttempts;
+        
+        const hasChanges = hasSettingsChanges || hasAttemptsChanges;
+        
+        if (hasChanges !== hasUnsavedChangesRef.current) {
+            hasUnsavedChangesRef.current = hasChanges;
+            if (onUnsavedChangesChange) {
+                onUnsavedChangesChange(hasChanges);
+            }
+        }
+        
+        return hasChanges;
+    }, [settings, maxInvoiceAttempts, savedSettings, savedMaxAttempts, onUnsavedChangesChange]);
+
+    // Check for unsaved changes whenever settings or maxInvoiceAttempts change
+    useEffect(() => {
+        if (!loading && savedSettings !== null) {
+            checkUnsavedChanges();
+        }
+    }, [checkUnsavedChanges, loading, savedSettings]);
+
+    // Handle browser navigation (beforeunload)
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (hasUnsavedChangesRef.current) {
+                e.preventDefault();
+                e.returnValue = ''; // Chrome requires returnValue to be set
+                return ''; // Some browsers require a return value
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, []);
+
+    // Expose save method to parent via ref
+    useImperativeHandle(ref, () => ({
+        save: async () => {
+            if (!settings.client_id || !settings.client_secret || !settings.refresh_token || !settings.realm_id) {
+                return { success: false, error: 'Please fill in all required fields' };
+            }
+
+            try {
+                setSaving(true);
+                await saveQBSettings(settings);
+                await loadSettings();
+                // After saving, test the connection and clear error if successful
+                try {
+                    const testResult = await testQBConnection();
+                    if (testResult.success && onConnectionCleared) {
+                        onConnectionCleared();
+                    }
+                } catch (testError) {
+                    console.log('Connection test after save failed:', testError);
+                }
+                return { success: true };
+            } catch (error) {
+                return { success: false, error: error.message || 'Failed to save settings' };
+            } finally {
+                setSaving(false);
+            }
+        }
+    }));
+
     const handleDelete = async () => {
         if (!confirm('Are you sure you want to delete QuickBooks settings? This action cannot be undone.')) {
             return;
@@ -158,6 +233,11 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                 environment: 'production'
             });
             await loadSettings();
+            // Reset unsaved changes after delete
+            hasUnsavedChangesRef.current = false;
+            if (onUnsavedChangesChange) {
+                onUnsavedChangesChange(false);
+            }
         } catch (error) {
             setMessage(error.message || 'Failed to delete settings');
             setMessageType('error');
@@ -183,7 +263,19 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                 setMessageType('error');
             }
         } catch (error) {
-            setMessage(error.message || 'Connection test failed');
+            let errorMessage = error.message || 'Connection test failed';
+            
+            // Provide helpful guidance for common errors
+            if (errorMessage.includes('invalid_grant') || errorMessage.includes('refresh token')) {
+                errorMessage = 'Invalid or expired refresh token. Please update your QuickBooks credentials. ' +
+                    'You may need to re-authorize your QuickBooks connection in the QuickBooks Developer Portal.';
+            } else if (errorMessage.includes('invalid_client') || errorMessage.includes('client_id') || errorMessage.includes('client_secret')) {
+                errorMessage = 'Invalid Client ID or Client Secret. Please verify your QuickBooks OAuth credentials.';
+            } else if (errorMessage.includes('Missing') || errorMessage.includes('empty')) {
+                errorMessage = errorMessage + ' Please fill in all required fields and save your settings.';
+            }
+            
+            setMessage(errorMessage);
             setMessageType('error');
         } finally {
             setTesting(false);
@@ -297,23 +389,9 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                             <input
                                 type={showPasswords.client_id ? 'text' : 'password'}
                                 value={settings.client_id}
-                                onChange={(e) => {
-                                    // Only allow editing if not a placeholder
-                                    if (!currentSettings?.configured || e.target.value !== '••••••••••••••••') {
-                                        setSettings({ ...settings, client_id: e.target.value });
-                                    }
-                                }}
-                                placeholder={currentSettings?.configured ? "Settings saved (click to edit)" : "Enter QuickBooks Client ID"}
-                                style={{
-                                    ...inputStyle,
-                                    color: settings.client_id === '••••••••••••••••' ? '#9ca3af' : '#111827',
-                                    cursor: settings.client_id === '••••••••••••••••' ? 'pointer' : 'text'
-                                }}
-                                onClick={() => {
-                                    if (settings.client_id === '••••••••••••••••') {
-                                        setSettings({ ...settings, client_id: '' });
-                                    }
-                                }}
+                                onChange={(e) => setSettings({ ...settings, client_id: e.target.value })}
+                                placeholder="Enter QuickBooks Client ID"
+                                style={inputStyle}
                             />
                             <button
                                 type="button"
@@ -339,22 +417,9 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                             <input
                                 type={showPasswords.client_secret ? 'text' : 'password'}
                                 value={settings.client_secret}
-                                onChange={(e) => {
-                                    if (!currentSettings?.configured || e.target.value !== '••••••••••••••••') {
-                                        setSettings({ ...settings, client_secret: e.target.value });
-                                    }
-                                }}
-                                placeholder={currentSettings?.configured ? "Settings saved (click to edit)" : "Enter QuickBooks Client Secret"}
-                                style={{
-                                    ...inputStyle,
-                                    color: settings.client_secret === '••••••••••••••••' ? '#9ca3af' : '#111827',
-                                    cursor: settings.client_secret === '••••••••••••••••' ? 'pointer' : 'text'
-                                }}
-                                onClick={() => {
-                                    if (settings.client_secret === '••••••••••••••••') {
-                                        setSettings({ ...settings, client_secret: '' });
-                                    }
-                                }}
+                                onChange={(e) => setSettings({ ...settings, client_secret: e.target.value })}
+                                placeholder="Enter QuickBooks Client Secret"
+                                style={inputStyle}
                             />
                             <button
                                 type="button"
@@ -380,22 +445,9 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
                             <input
                                 type={showPasswords.refresh_token ? 'text' : 'password'}
                                 value={settings.refresh_token}
-                                onChange={(e) => {
-                                    if (!currentSettings?.configured || e.target.value !== '••••••••••••••••') {
-                                        setSettings({ ...settings, refresh_token: e.target.value });
-                                    }
-                                }}
-                                placeholder={currentSettings?.configured ? "Settings saved (click to edit)" : "Enter QuickBooks Refresh Token"}
-                                style={{
-                                    ...inputStyle,
-                                    color: settings.refresh_token === '••••••••••••••••' ? '#9ca3af' : '#111827',
-                                    cursor: settings.refresh_token === '••••••••••••••••' ? 'pointer' : 'text'
-                                }}
-                                onClick={() => {
-                                    if (settings.refresh_token === '••••••••••••••••') {
-                                        setSettings({ ...settings, refresh_token: '' });
-                                    }
-                                }}
+                                onChange={(e) => setSettings({ ...settings, refresh_token: e.target.value })}
+                                placeholder="Enter QuickBooks Refresh Token"
+                                style={inputStyle}
                             />
                             <button
                                 type="button"
@@ -605,7 +657,7 @@ export function QuickBooksSettingsPage({ onConnectionCleared }) {
             </div>
         </div>
     );
-}
+});
 
 function FormGroup({ label, required, children }) {
     return (

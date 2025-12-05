@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Filter, ChevronDown, FileText, RefreshCw, Mail } from 'lucide-react';
-import { getInvoiceRecord } from '../services/invoiceApi';
+import { Search, Filter, ChevronDown, FileText, RefreshCw, Mail, Trash2 } from 'lucide-react';
+import { getInvoiceRecord, markPOAsNotPO } from '../services/invoiceApi';
 import { getGmailSettings, syncGmailEmails } from '../services/gmailApi';
 
 export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOList }) {
@@ -63,6 +63,12 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
     });
 
     const filteredPOs = posWithStatus.filter(po => {
+        // Filter out POs marked as "Not a PO"
+        const invoiceRecord = invoiceRecords[po.filename];
+        if (invoiceRecord && invoiceRecord.po_status === 'Not a PO') {
+            return false;
+        }
+        
         const matchesSearch = po.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (po.po_number && po.po_number.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -70,6 +76,16 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
             (po.status && po.status.toLowerCase() === selectedStatus.toLowerCase());
 
         return matchesSearch && matchesStatus;
+    }).sort((a, b) => {
+        // Sort by Order Date (po.date) in descending order (newest first)
+        const dateA = parseDateForSort(a.date);
+        const dateB = parseDateForSort(b.date);
+        
+        // If dates are equal, maintain original order
+        if (dateA === dateB) return 0;
+        
+        // Sort descending (newest first)
+        return dateB - dateA;
     });
 
     // Keyboard navigation with arrow keys
@@ -139,6 +155,24 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
             setSyncing(false);
             // Clear message after 5 seconds
             setTimeout(() => setSyncMessage(null), 5000);
+        }
+    };
+
+    const handleMarkAsNotPO = async (po, e) => {
+        e.stopPropagation(); // Prevent selecting the PO when clicking delete
+        
+        if (!confirm(`Are you sure you want to hide "${po.filename}"? This will mark it as "Not a PO" and it will be hidden from the list.`)) {
+            return;
+        }
+
+        try {
+            await markPOAsNotPO(po.filename);
+            // Refresh the PO list to hide the file
+            if (onRefreshPOList) {
+                onRefreshPOList();
+            }
+        } catch (error) {
+            alert(`Failed to hide file: ${error.message}`);
         }
     };
 
@@ -319,7 +353,7 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
                 </div>
             </div>
 
-            <div ref={listRef} style={{ overflowY: 'auto', flex: 1, padding: '0 12px 20px' }}>
+            <div ref={listRef} style={{ overflowY: 'auto', flex: 1, padding: '0 12px 24px' }}>
                 {filteredPOs.map((po) => (
                     <div
                         key={po.id}
@@ -333,11 +367,12 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
                             backgroundColor: selectedPO?.id === po.id ? '#eff6ff' : '#fff',
                             border: selectedPO?.id === po.id ? '1px solid #bfdbfe' : '1px solid #f3f4f6',
                             transition: 'all 0.2s',
-                            boxShadow: selectedPO?.id === po.id ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none'
+                            boxShadow: selectedPO?.id === po.id ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none',
+                            position: 'relative'
                         }}
                     >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                            <div>
+                            <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '14px', fontWeight: 600, color: '#111827', marginBottom: '2px' }}>
                                     {po.vendor_name || 'Acme Corporation'}
                                 </div>
@@ -348,7 +383,35 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
                                     </span>
                                 </div>
                             </div>
-                            <StatusBadge status={po.status || 'Open'} />
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                <StatusBadge status={po.status || 'Open'} />
+                                <button
+                                    onClick={(e) => handleMarkAsNotPO(po, e)}
+                                    title="Hide this file (mark as Not a PO)"
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        cursor: 'pointer',
+                                        color: '#9ca3af',
+                                        padding: '4px',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.target.style.color = '#ef4444';
+                                        e.target.style.backgroundColor = '#fef2f2';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.target.style.color = '#9ca3af';
+                                        e.target.style.backgroundColor = 'transparent';
+                                    }}
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
@@ -376,6 +439,55 @@ export function POList({ pos, selectedPO, onSelectPO, onOpenFolder, onRefreshPOL
             </div>
         </div>
     );
+}
+
+function parseDateForSort(dateStr) {
+    if (!dateStr) return 0; // Treat missing dates as oldest (0)
+    
+    try {
+        let date;
+        
+        // Check if already in MM/DD/YYYY format
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) {
+            const parts = dateStr.split('/');
+            const month = parseInt(parts[0], 10);
+            const day = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+            date = new Date(year, month - 1, day);
+        }
+        // Try parsing MM/DD/YYYY or MM-DD-YYYY
+        else if (dateStr.includes('/') || dateStr.includes('-')) {
+            const parts = dateStr.split(/[\/\-]/);
+            if (parts.length === 3) {
+                // Assume MM/DD/YYYY or MM-DD-YYYY
+                const month = parseInt(parts[0], 10);
+                const day = parseInt(parts[1], 10);
+                const year = parseInt(parts[2], 10);
+                
+                // Check if it's a valid date (month <= 12 suggests MM/DD/YYYY)
+                if (month <= 12 && day <= 31) {
+                    date = new Date(year, month - 1, day);
+                } else {
+                    // Might be DD/MM/YYYY, try swapping
+                    date = new Date(year, day - 1, month);
+                }
+            }
+        }
+        
+        // Try parsing ISO format (YYYY-MM-DD)
+        if (!date || isNaN(date.getTime())) {
+            date = new Date(dateStr);
+        }
+        
+        if (isNaN(date.getTime())) {
+            return 0; // Treat invalid dates as oldest
+        }
+        
+        // Return timestamp for comparison
+        return date.getTime();
+    } catch (error) {
+        return 0; // Treat errors as oldest
+    }
 }
 
 function formatDate(dateStr) {

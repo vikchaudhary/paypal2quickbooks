@@ -129,3 +129,22 @@ def update_invoice_status(po_filename: str, email_status: Optional[str] = None, 
         invoices[po_filename]["last_status_check"] = datetime.now().isoformat()
         _save_invoices(invoices)
 
+
+def mark_as_not_po(po_filename: str) -> None:
+    """
+    Mark a PO file as "Not a PO" to hide it from the list.
+    
+    Args:
+        po_filename: PO filename (e.g., "PO123.pdf")
+    """
+    invoices = _load_invoices()
+    
+    # Create or update record with "Not a PO" status
+    if po_filename not in invoices:
+        invoices[po_filename] = {}
+    
+    invoices[po_filename]["po_status"] = "Not a PO"
+    invoices[po_filename]["marked_at"] = datetime.now().isoformat()
+    
+    _save_invoices(invoices)
+
